@@ -1,0 +1,260 @@
+"""
+Incident Management API Routes
+"""
+
+from typing import Optional
+from uuid import UUID
+from fastapi import APIRouter, Depends, Query, HTTPException, status, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.database import get_db
+from app.schemas.incident import (
+    IncidentCreate,
+    IncidentUpdate,
+    IncidentResponse,
+    IncidentListResponse,
+    IncidentAcknowledgeRequest,
+    IncidentAcknowledgeResponse,
+    IncidentResolveRequest,
+    IncidentCancelRequest,
+)
+from app.models import IncidentStatus, SeverityLevel, User
+from app.services.incident_service import IncidentService
+from app.services.hospital_service import HospitalService
+from app.services.scheduler_service import get_scheduler
+from app.services.websocket_service import WebSocketService
+from app.dependencies import get_current_user, get_operator_or_admin, check_maintenance_mode, get_optional_user
+from app.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.post("", response_model=IncidentResponse, status_code=status.HTTP_201_CREATED)
+async def create_incident(
+    incident_data: IncidentCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create a new incident (AI Integration Endpoint)
+
+    This endpoint is called by the AI detection module when an accident is detected.
+    No authentication required for AI module integration.
+
+    Idempotency: Use idempotency_key to prevent duplicate incident creation.
+    """
+    # Check maintenance mode
+    if settings.MAINTENANCE_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="System is in maintenance mode"
+        )
+
+    # Create incident
+    incident = await IncidentService.create_incident(db, incident_data)
+
+    # Broadcast incident creation
+    await WebSocketService.broadcast_incident_created({
+        "id": str(incident.id),
+        "incident_id": incident.incident_id,
+        "severity": incident.severity.value,
+        "status": incident.status.value,
+        "detected_at": incident.detected_at.isoformat(),
+        "latitude": incident.latitude,
+        "longitude": incident.longitude,
+    })
+
+    # If auto-notification is enabled and incident is eligible, start notification workflow
+    if settings.AUTO_NOTIFICATION_ENABLED and incident.latitude and incident.longitude:
+        # Activate incident for notification
+        await IncidentService.activate_incident(db, incident.id)
+
+        # Schedule notifications
+        scheduler = get_scheduler()
+        background_tasks.add_task(
+            scheduler.schedule_incident_notifications,
+            incident.id
+        )
+
+        logger.info(f"Auto-notification scheduled for incident {incident.incident_id}")
+
+    return incident
+
+
+@router.get("", response_model=IncidentListResponse)
+async def get_incidents(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    status: Optional[IncidentStatus] = None,
+    severity: Optional[SeverityLevel] = None,
+    camera_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get list of incidents with optional filters
+    """
+    incidents, total = await IncidentService.get_incidents(
+        db, skip, limit, status, severity, camera_id
+    )
+
+    return IncidentListResponse(
+        incidents=incidents,
+        total=total,
+        page=skip // limit + 1,
+        page_size=limit,
+    )
+
+
+@router.get("/{incident_id}", response_model=IncidentResponse)
+async def get_incident(
+    incident_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get incident details by ID
+    """
+    incident = await IncidentService.get_incident(db, incident_id)
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Incident not found"
+        )
+    return incident
+
+
+@router.patch("/{incident_id}", response_model=IncidentResponse)
+async def update_incident(
+    incident_id: UUID,
+    incident_data: IncidentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_operator_or_admin),
+):
+    """
+    Update incident details
+
+    Requires operator or admin role.
+    """
+    incident = await IncidentService.update_incident(db, incident_id, incident_data)
+
+    # Broadcast incident update
+    await WebSocketService.broadcast_incident_updated({
+        "id": str(incident.id),
+        "incident_id": incident.incident_id,
+        "severity": incident.severity.value,
+        "status": incident.status.value,
+    })
+
+    return incident
+
+
+@router.post("/{incident_id}/acknowledge", response_model=IncidentAcknowledgeResponse)
+async def acknowledge_incident(
+    incident_id: UUID,
+    acknowledge_data: IncidentAcknowledgeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """
+    Acknowledge an incident
+
+    Can be called by:
+    - Authenticated users (operators/admins)
+    - Hospitals via secure acknowledgment token from notification
+    """
+    incident = await IncidentService.acknowledge_incident(db, incident_id, acknowledge_data)
+
+    # Stop scheduled notifications
+    scheduler = get_scheduler()
+    await scheduler.stop_incident_notifications(incident.id)
+
+    # Get hospital name if available
+    hospital_name = None
+    if incident.acknowledged_by_hospital_id:
+        hospital = await HospitalService.get_hospital(db, incident.acknowledged_by_hospital_id)
+        if hospital:
+            hospital_name = hospital.name
+            # Update hospital stats
+            await HospitalService.update_hospital_response_stats(
+                db, hospital.id, success=True
+            )
+
+    # Broadcast acknowledgment
+    await WebSocketService.broadcast_incident_acknowledged({
+        "id": str(incident.id),
+        "incident_id": incident.incident_id,
+        "acknowledged_at": incident.acknowledged_at.isoformat(),
+        "hospital_name": hospital_name,
+    })
+
+    return IncidentAcknowledgeResponse(
+        incident_id=incident.id,
+        status=incident.status,
+        acknowledged_at=incident.acknowledged_at,
+        hospital_name=hospital_name,
+        message="Incident acknowledged successfully. Emergency response en route."
+    )
+
+
+@router.post("/{incident_id}/resolve", response_model=IncidentResponse)
+async def resolve_incident(
+    incident_id: UUID,
+    resolve_data: IncidentResolveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_operator_or_admin),
+):
+    """
+    Resolve an incident
+
+    Requires operator or admin role.
+    """
+    incident = await IncidentService.resolve_incident(db, incident_id, resolve_data, current_user.id)
+
+    # Stop any active notifications
+    scheduler = get_scheduler()
+    await scheduler.stop_incident_notifications(incident.id)
+
+    # Broadcast resolution
+    await WebSocketService.broadcast_incident_resolved({
+        "id": str(incident.id),
+        "incident_id": incident.incident_id,
+        "resolved_at": incident.resolved_at.isoformat(),
+        "resolved_by": str(incident.resolved_by),
+    })
+
+    return incident
+
+
+@router.post("/{incident_id}/cancel", response_model=IncidentResponse)
+async def cancel_incident(
+    incident_id: UUID,
+    cancel_data: IncidentCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_operator_or_admin),
+):
+    """
+    Cancel an incident (e.g., false positive)
+
+    Requires operator or admin role.
+    """
+    incident = await IncidentService.cancel_incident(
+        db, incident_id, cancel_data.reason, current_user.id
+    )
+
+    # Stop any active notifications
+    scheduler = get_scheduler()
+    await scheduler.stop_incident_notifications(incident.id)
+
+    # Broadcast cancellation
+    await WebSocketService.broadcast_incident_resolved({
+        "id": str(incident.id),
+        "incident_id": incident.incident_id,
+        "status": incident.status.value,
+        "cancelled": True,
+        "reason": cancel_data.reason,
+    })
+
+    return incident
