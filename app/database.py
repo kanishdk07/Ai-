@@ -11,13 +11,19 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Engine kwargs
+engine_kwargs = {
+    "echo": settings.DATABASE_ECHO,
+    "pool_pre_ping": True,
+}
+if "sqlite" not in settings.DATABASE_URL:
+    engine_kwargs["pool_size"] = settings.DATABASE_POOL_SIZE
+    engine_kwargs["max_overflow"] = settings.DATABASE_MAX_OVERFLOW
+
 # Create async engine
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=settings.DATABASE_ECHO,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=settings.DATABASE_MAX_OVERFLOW,
-    pool_pre_ping=True,  # Enable connection health checks
+    **engine_kwargs
 )
 
 # Create async session factory
@@ -54,7 +60,7 @@ async def init_db():
     """Initialize database - create all tables"""
     async with engine.begin() as conn:
         # Import all models to ensure they're registered with Base
-        from app.models import user, camera, incident, hospital, notification, audit_log
+        import app.models  # noqa: F401
 
         # Create all tables
         await conn.run_sync(Base.metadata.create_all)

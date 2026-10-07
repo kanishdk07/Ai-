@@ -103,11 +103,19 @@ class NotificationService:
                 detail="Incident not found"
             )
 
+        # Generate acknowledgment token for recipient
+        hospital_id_str = str(hospital_id) if hospital_id else "manual"
+        ack_token = create_acknowledgment_token(str(incident.id), hospital_id_str)
+
         # Build message
         if custom_message:
             message = custom_message
         else:
-            message = NotificationService._build_notification_message(incident, repeat_sequence)
+            message = NotificationService._build_notification_message(
+                incident=incident,
+                ack_token=ack_token,
+                repeat_sequence=repeat_sequence
+            )
 
         # Create notification
         notification_id = generate_secure_id("NOTIF-")
@@ -135,37 +143,56 @@ class NotificationService:
         return new_notification
 
     @staticmethod
-    def _build_notification_message(incident: Incident, repeat_sequence: int = 1) -> str:
-        """Build notification message content"""
+    def _build_notification_message(
+        incident: Incident,
+        ack_token: Optional[str] = None,
+        repeat_sequence: int = 1
+    ) -> str:
+        """
+        Build concise, compliant emergency alert message content (Requirement 5)
+        """
         severity_text = incident.severity.value.upper()
-        location = incident.location_description or f"Lat: {incident.latitude}, Lon: {incident.longitude}"
+        location_desc = incident.location_description or "Highway Segment"
+        coords_str = f"{incident.latitude:.5f},{incident.longitude:.5f}" if incident.latitude and incident.longitude else "N/A"
+        map_link = f"https://maps.google.com/?q={coords_str}" if incident.latitude and incident.longitude else ""
+
+        camera_ref = incident.camera_external_id or (str(incident.camera_id) if incident.camera_id else "System Feed")
 
         message = (
-            f"🚨 EMERGENCY ALERT - Highway Accident Detected\n\n"
+            f"🚨 EMERGENCY ALERT: Highway Accident Detected\n"
+            f"ID: {incident.incident_id}\n"
             f"Severity: {severity_text}\n"
-            f"Location: {location}\n"
-            f"Time: {incident.detected_at.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"Incident ID: {incident.incident_id}\n"
+            f"Time: {incident.detected_at.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+            f"Location: {location_desc} (GPS: {coords_str})\n"
+            f"Camera Ref: {camera_ref}\n"
         )
 
-        if incident.vehicle_count and incident.vehicle_count > 0:
-            message += f"Vehicles Involved: {incident.vehicle_count}\n"
+        if map_link:
+            message += f"Map: {map_link}\n"
+
+        if incident.accident_image_url:
+            message += f"Image: {incident.accident_image_url}\n"
+
+        if ack_token:
+            message += f"To Acknowledge Reply ACK {incident.incident_id} or Click: http://localhost:8000/api/v1/incidents/{incident.id}/acknowledge?token={ack_token}\n"
+        else:
+            message += f"To Acknowledge, submit response referencing Incident ID {incident.incident_id}.\n"
 
         if repeat_sequence > 1:
-            message += f"\n⚠️ REPEAT ALERT #{repeat_sequence}\n"
+            message += f"[REPEAT ALERT #{repeat_sequence}]\n"
 
         if settings.TEST_MODE:
-            message += "\n[TEST MODE - No actual emergency]"
+            message += "[TEST MODE - Emergency Simulation]"
 
-        return message
+        return message.strip()
 
     @staticmethod
     async def send_notification(db: AsyncSession, notification_id: UUID) -> Notification:
         """
-        Send a notification (mock implementation)
-
-        In production, integrate with actual SMS/Email providers
+        Send a notification using common notification provider interface (Requirement 5)
         """
+        from app.services.notification_providers import NotificationProviderFactory
+
         notification = await NotificationService.get_notification(db, notification_id)
         if not notification:
             raise HTTPException(
@@ -173,40 +200,69 @@ class NotificationService:
                 detail="Notification not found"
             )
 
+        provider = NotificationProviderFactory.get_provider(
+            channel=notification.notification_type.value
+        )
+        notification.provider = provider.provider_name
+
         try:
-            # Mock sending - in production, call actual provider
-            if settings.TEST_MODE:
-                logger.info(f"[TEST MODE] Would send {notification.notification_type} to {notification.recipient_phone or notification.recipient_email}")
-                logger.info(f"[TEST MODE] Message: {notification.message}")
+            if notification.notification_type == NotificationType.SMS:
+                delivery_res = await provider.send_sms(
+                    to_phone=notification.recipient_phone,
+                    message=notification.message
+                )
+            elif notification.notification_type == NotificationType.EMAIL:
+                delivery_res = await provider.send_email(
+                    to_email=notification.recipient_email,
+                    subject=f"🚨 Emergency Alert: Incident {notification.incident_id}",
+                    body_text=notification.message
+                )
+            elif notification.notification_type == NotificationType.PUSH:
+                delivery_res = await provider.send_push(
+                    device_token=notification.recipient_phone or "default_device",
+                    title="🚨 Emergency Highway Alert",
+                    body=notification.message
+                )
             else:
-                # TODO: Integrate with actual SMS/Email provider
-                # Example: await send_sms(notification.recipient_phone, notification.message)
-                logger.warning("Production notification sending not yet implemented")
+                delivery_res = await provider.send_sms(
+                    to_phone=notification.recipient_phone or "+10000000000",
+                    message=notification.message
+                )
 
-            # Update notification status
-            notification.status = NotificationStatus.SENT
-            notification.sent_at = datetime.utcnow()
-            notification.delivered_at = datetime.utcnow()  # Mock immediate delivery
+            notification.provider_message_id = delivery_res.provider_message_id
+            notification.provider_response = delivery_res.provider_response
 
-            # Update incident notification count
-            incident_result = await db.execute(
-                select(Incident).where(Incident.id == notification.incident_id)
-            )
-            incident = incident_result.scalar_one_or_none()
-            if incident:
-                incident.notification_count += 1
-                if incident.notification_started_at is None:
-                    incident.notification_started_at = datetime.utcnow()
-                incident.status = IncidentStatus.NOTIFIED
+            if delivery_res.success:
+                notification.status = NotificationStatus.DELIVERED
+                notification.sent_at = datetime.utcnow()
+                notification.delivered_at = delivery_res.timestamp
+
+                # Update incident status and count
+                incident_result = await db.execute(
+                    select(Incident).where(Incident.id == notification.incident_id)
+                )
+                incident = incident_result.scalar_one_or_none()
+                if incident:
+                    incident.notification_count += 1
+                    if incident.notification_started_at is None:
+                        incident.notification_started_at = datetime.utcnow()
+                    if incident.status == IncidentStatus.DETECTED:
+                        incident.status = IncidentStatus.NOTIFIED
+
+                logger.info(f"Notification delivered cleanly: {notification.notification_id} via {provider.provider_name}")
+            else:
+                notification.status = NotificationStatus.FAILED
+                notification.failed_at = datetime.utcnow()
+                notification.error_message = delivery_res.error_message
+                notification.retry_count += 1
+                logger.warning(f"Notification delivery failed: {notification.notification_id} - {delivery_res.error_message}")
 
             await db.commit()
             await db.refresh(notification)
-
-            logger.info(f"Notification sent: {notification.notification_id}")
             return notification
 
         except Exception as e:
-            # Handle sending failure
+            # Record failure distinctly
             notification.status = NotificationStatus.FAILED
             notification.failed_at = datetime.utcnow()
             notification.error_message = str(e)
@@ -215,7 +271,7 @@ class NotificationService:
             await db.commit()
             await db.refresh(notification)
 
-            logger.error(f"Notification failed: {notification.notification_id} - {str(e)}")
+            logger.error(f"Notification dispatch error: {notification.notification_id} - {str(e)}")
             return notification
 
     @staticmethod

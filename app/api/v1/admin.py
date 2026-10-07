@@ -40,19 +40,25 @@ app_start_time = time.time()
 @router.patch("/settings", response_model=SystemSettingsResponse)
 async def update_system_settings(
     settings_data: SystemSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_admin_user),
 ):
     """
-    Update system settings
+    Update system settings (Requirement 3 & 10)
 
     Requires admin role.
     """
-    # Update settings (in production, store in database)
+    from app.models.admin_setting import AdminSetting
+    from app.models.audit_log import AuditLog
+
+    # Update in-memory settings
     if settings_data.auto_notification_enabled is not None:
         settings.AUTO_NOTIFICATION_ENABLED = settings_data.auto_notification_enabled
 
     if settings_data.notification_interval_seconds is not None:
-        settings.NOTIFICATION_INTERVAL_SECONDS = settings_data.notification_interval_seconds
+        # Clamp interval between 30s and 300s (Requirement 6)
+        interval = max(30, min(300, settings_data.notification_interval_seconds))
+        settings.NOTIFICATION_INTERVAL_SECONDS = interval
 
     if settings_data.hospital_search_radius_km is not None:
         settings.HOSPITAL_SEARCH_RADIUS_KM = settings_data.hospital_search_radius_km
@@ -65,6 +71,34 @@ async def update_system_settings(
 
     if settings_data.test_mode is not None:
         settings.TEST_MODE = settings_data.test_mode
+
+    # DB Persistence in admin_settings table
+    res = await db.execute(select(AdminSetting).order_by(AdminSetting.created_at.desc()).limit(1))
+    db_setting = res.scalar_one_or_none()
+    if not db_setting:
+        db_setting = AdminSetting(system_configuration_version=1)
+        db.add(db_setting)
+
+    db_setting.auto_notification_enabled = settings.AUTO_NOTIFICATION_ENABLED
+    db_setting.notification_repeat_interval = settings.NOTIFICATION_INTERVAL_SECONDS
+    db_setting.default_hospital_search_radius = settings.HOSPITAL_SEARCH_RADIUS_KM
+    db_setting.maintenance_mode = settings.MAINTENANCE_MODE
+    db_setting.last_updated_by = current_user.id
+    db_setting.system_configuration_version += 1
+
+    # Record Audit Log
+    audit = AuditLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        action="UPDATE_SETTINGS",
+        resource_type="admin_setting",
+        resource_id=str(db_setting.id),
+        description=f"System settings updated by {current_user.username}"
+    )
+    db.add(audit)
+
+    await db.commit()
+    await db.refresh(db_setting)
 
     logger.info(f"System settings updated by {current_user.username}")
 
@@ -87,28 +121,44 @@ async def toggle_maintenance_mode(
     current_user: User = Depends(get_admin_user),
 ):
     """
-    Enable or disable maintenance mode
+    Enable or disable maintenance mode (Requirement 3 & 10)
 
     Requires admin role.
-
-    When enabled:
-    - All camera monitoring stops
-    - No new incidents are processed
-    - Notification scheduling is paused
-    - Only health checks and admin endpoints remain active
     """
+    from app.models.admin_setting import AdminSetting
+    from app.models.audit_log import AuditLog
+
     settings.MAINTENANCE_MODE = maintenance_data.enabled
 
+    # Persist in DB
+    res = await db.execute(select(AdminSetting).order_by(AdminSetting.created_at.desc()).limit(1))
+    db_setting = res.scalar_one_or_none()
+    if not db_setting:
+        db_setting = AdminSetting(system_configuration_version=1)
+        db.add(db_setting)
+
+    db_setting.maintenance_mode = maintenance_data.enabled
+    db_setting.last_updated_by = current_user.id
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        action="TOGGLE_MAINTENANCE_MODE",
+        resource_type="admin_setting",
+        description=f"Maintenance mode set to {maintenance_data.enabled}. Reason: {maintenance_data.reason}"
+    )
+    db.add(audit)
+
     if maintenance_data.enabled:
-        # Stop all scheduled notifications
         scheduler = get_scheduler()
         stopped_count = await scheduler.stop_all_notifications()
-
         logger.warning(f"Maintenance mode ENABLED by {current_user.username}. Stopped {stopped_count} notification jobs.")
         message = f"Maintenance mode enabled. {stopped_count} notification jobs stopped."
     else:
         logger.info(f"Maintenance mode DISABLED by {current_user.username}")
         message = "Maintenance mode disabled. System restored to normal operation."
+
+    await db.commit()
 
     # Broadcast maintenance mode change
     await WebSocketService.broadcast_maintenance_mode_changed(
@@ -133,14 +183,9 @@ async def emergency_stop_all_notifications(
 ):
     """
     EMERGENCY STOP: Stop all active notifications immediately
-
-    Requires admin role.
-
-    This will:
-    - Cancel all scheduled notification jobs
-    - Mark all pending notifications as cancelled
-    - Stop notifications for all active incidents
     """
+    from app.models.audit_log import AuditLog
+
     scheduler = get_scheduler()
 
     # Stop all scheduled jobs
@@ -162,17 +207,22 @@ async def emergency_stop_all_notifications(
     total_cancelled = 0
 
     for incident in active_incidents:
-        # Cancel notifications for each incident
         cancelled = await NotificationService.cancel_notifications_for_incident(db, incident.id)
         total_cancelled += cancelled
         affected_incident_ids.append(incident.id)
-
-        # Update incident
         incident.notification_stopped_at = datetime.utcnow()
+
+    audit = AuditLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        action="EMERGENCY_STOP_ALL",
+        resource_type="notifications",
+        description=f"Emergency stop all notifications executed. Reason: {stop_data.reason}"
+    )
+    db.add(audit)
 
     await db.commit()
 
-    # Broadcast emergency stop
     await WebSocketService.broadcast_system_alert(
         alert_type="emergency_stop",
         message_text=f"All notifications stopped by admin. Reason: {stop_data.reason}"
@@ -199,10 +249,7 @@ async def system_health_check(
 ):
     """
     System health check
-
-    No authentication required for monitoring purposes.
     """
-    # Check database connection
     try:
         await db.execute(select(1))
         database_connected = True
@@ -210,11 +257,9 @@ async def system_health_check(
         logger.error(f"Database health check failed: {str(e)}")
         database_connected = False
 
-    # Get scheduler status
     scheduler = get_scheduler()
     scheduler_running = scheduler.is_running()
 
-    # Get active incidents count
     result = await db.execute(
         select(func.count()).select_from(Incident).where(
             Incident.status.in_([
@@ -226,7 +271,6 @@ async def system_health_check(
     )
     active_incidents = result.scalar()
 
-    # Get online cameras count
     result = await db.execute(
         select(func.count()).select_from(Camera).where(
             Camera.status.in_([CameraStatus.ONLINE, CameraStatus.MONITORING])
@@ -234,13 +278,16 @@ async def system_health_check(
     )
     online_cameras = result.scalar()
 
-    # Get pending notifications count (would need to query Notification table)
-    pending_notifications = 0  # Simplified
+    from app.models import Notification, NotificationStatus
+    res_notif = await db.execute(
+        select(func.count()).select_from(Notification).where(
+            Notification.status == NotificationStatus.PENDING
+        )
+    )
+    pending_notifications = res_notif.scalar() or 0
 
-    # Calculate uptime
     uptime_seconds = time.time() - app_start_time
 
-    # Determine overall status
     if database_connected and scheduler_running:
         overall_status = "healthy"
     elif database_connected:
@@ -271,16 +318,53 @@ async def get_audit_logs(
     current_user: User = Depends(get_admin_user),
 ):
     """
-    Get audit logs
+    Get audit logs (Requirement 10)
 
     Requires admin role.
     """
-    # Simplified audit log retrieval
-    # In production, implement full audit log querying from AuditLog model
+    from app.models.audit_log import AuditLog
+    from sqlalchemy import and_
+
+    query = select(AuditLog)
+    filters = []
+
+    if action:
+        filters.append(AuditLog.action == action)
+    if resource_type:
+        filters.append(AuditLog.resource_type == resource_type)
+
+    if filters:
+        query = query.where(and_(*filters))
+
+    # Total count
+    count_query = select(func.count()).select_from(AuditLog)
+    if filters:
+        count_query = count_query.where(and_(*filters))
+    total_res = await db.execute(count_query)
+    total = total_res.scalar() or 0
+
+    # Paginated results
+    query = query.offset(skip).limit(limit).order_by(AuditLog.created_at.desc())
+    logs_res = await db.execute(query)
+    logs = logs_res.scalars().all()
+
+    log_responses = [
+        AuditLogResponse(
+            id=log.id,
+            user_id=log.user_id,
+            username=log.username,
+            action=log.action,
+            resource_type=log.resource_type,
+            resource_id=log.resource_id,
+            description=log.description,
+            created_at=log.created_at,
+        )
+        for log in logs
+    ]
 
     return AuditLogListResponse(
-        logs=[],
-        total=0,
+        logs=log_responses,
+        total=total,
         page=skip // limit + 1,
         page_size=limit,
     )

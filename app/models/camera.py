@@ -3,7 +3,7 @@ Camera Model
 Handles camera registration and monitoring
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Integer, Float
+from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Integer, Float, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from geoalchemy2 import Geography
@@ -46,7 +46,7 @@ class Camera(Base):
     location = Column(Geography(geometry_type='POINT', srid=4326), nullable=True)
 
     # Connection configuration (encrypted sensitive data)
-    connection_config = Column(JSONB, nullable=True)  # Store RTSP URL, credentials (encrypted)
+    connection_config = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # Store RTSP URL, credentials (encrypted)
 
     # Status and health
     status = Column(SQLEnum(CameraStatus), nullable=False, default=CameraStatus.OFFLINE)
@@ -61,7 +61,7 @@ class Camera(Base):
 
     # Additional metadata
     description = Column(Text, nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -79,4 +79,4 @@ class Camera(Base):
     @property
     def can_monitor(self) -> bool:
         """Check if camera can be used for monitoring"""
-        return self.status in [CameraStatus.ONLINE, CameraStatus.MONITORING] and self.is_healthy
+        return self.status not in [CameraStatus.ERROR, CameraStatus.MAINTENANCE] and self.is_healthy

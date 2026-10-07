@@ -3,7 +3,7 @@ Notification Model
 Tracks emergency notifications sent to hospitals
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Float, ForeignKey, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Float, ForeignKey, Integer, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.database import Base
@@ -74,13 +74,13 @@ class Notification(Base):
     next_retry_at = Column(DateTime(timezone=True), nullable=True)
 
     # Response tracking
-    response_data = Column(JSONB, nullable=True)
+    response_data = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
     error_message = Column(Text, nullable=True)
 
     # Provider details
     provider = Column(String(50), nullable=True)  # twilio, sendgrid, etc.
     provider_message_id = Column(String(255), nullable=True)
-    provider_response = Column(JSONB, nullable=True)
+    provider_response = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Repeat notification tracking
     is_repeat = Column(Boolean, default=False, nullable=False)
@@ -91,7 +91,7 @@ class Notification(Base):
     job_id = Column(String(255), nullable=True, index=True)
 
     # Metadata
-    metadata = Column(JSONB, nullable=True)
+    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

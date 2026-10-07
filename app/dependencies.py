@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.database import AsyncSessionLocal
+from app.database import AsyncSessionLocal, get_db
 from app.models import User, UserRole
 from app.utils.security import decode_token
 from app.config import settings
@@ -17,23 +17,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
-
-
-async def get_db() -> Generator:
-    """
-    Dependency for database sessions
-    Yields async database session and handles cleanup
-    """
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception as e:
-            await session.rollback()
-            logger.error(f"Database error: {str(e)}")
-            raise
-        finally:
-            await session.close()
 
 
 async def get_current_user(

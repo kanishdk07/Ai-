@@ -63,24 +63,24 @@ class HospitalResponse(HospitalBase):
     id: UUID
     hospital_code: Optional[str] = None
     emergency_contact: Optional[str] = None
-    has_emergency_dept: bool
-    has_trauma_center: bool
-    has_ambulance: bool
+    has_emergency_dept: bool = False
+    has_trauma_center: bool = False
+    has_ambulance: bool = False
     bed_capacity: Optional[int] = None
     available_beds: Optional[int] = None
-    is_available: bool
-    is_24_7: bool
-    accepts_sms: bool
-    accepts_email: bool
-    accepts_call: bool
+    is_available: bool = True
+    is_24_7: bool = False
+    accepts_sms: bool = True
+    accepts_email: bool = True
+    accepts_call: bool = True
     average_response_time_minutes: Optional[float] = None
-    total_responses: int
-    successful_responses: int
+    total_responses: int = 0
+    successful_responses: int = 0
     description: Optional[str] = None
     website: Optional[str] = None
-    is_active: bool
-    is_verified: bool
-    created_at: datetime
+    is_active: bool = True
+    is_verified: bool = False
+    created_at: Optional[datetime] = None
     last_notified_at: Optional[datetime] = None
 
 

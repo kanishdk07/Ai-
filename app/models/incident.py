@@ -3,7 +3,7 @@ Incident Model
 Handles accident detection events and incident lifecycle
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Float, ForeignKey, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Float, ForeignKey, Integer, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -57,14 +57,14 @@ class Incident(Base):
 
     # Vehicle information
     vehicle_count = Column(Integer, default=0, nullable=True)
-    vehicle_info = Column(JSONB, nullable=True)  # Detailed vehicle data from AI
+    vehicle_info = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # Detailed vehicle data from AI
 
     # Media
     accident_image_url = Column(String(500), nullable=True)
-    additional_media = Column(JSONB, nullable=True)
+    additional_media = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # AI event details
-    ai_event_data = Column(JSONB, nullable=True)
+    ai_event_data = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Status and lifecycle
     status = Column(SQLEnum(IncidentStatus), nullable=False, default=IncidentStatus.DETECTED, index=True)
@@ -77,7 +77,7 @@ class Incident(Base):
     # Acknowledgment details
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
     acknowledged_by_hospital_id = Column(UUID(as_uuid=True), nullable=True)
-    acknowledgment_details = Column(JSONB, nullable=True)
+    acknowledgment_details = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Resolution
     resolved_at = Column(DateTime(timezone=True), nullable=True)
@@ -86,7 +86,7 @@ class Incident(Base):
 
     # Metadata
     notes = Column(Text, nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Idempotency
     idempotency_key = Column(String(255), unique=True, nullable=True, index=True)
@@ -111,6 +111,7 @@ class Incident(Base):
     def can_notify(self) -> bool:
         """Check if incident can trigger notifications"""
         return self.status in [
+            IncidentStatus.DETECTED,
             IncidentStatus.ACTIVE,
             IncidentStatus.NOTIFICATION_PENDING,
             IncidentStatus.NOTIFIED

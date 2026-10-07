@@ -3,7 +3,7 @@ Hospital Model
 Manages hospital/emergency responder information
 """
 
-from sqlalchemy import Column, String, Boolean, DateTime, Float, Text
+from sqlalchemy import Column, String, Boolean, DateTime, Float, Text, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.sql import func
 from geoalchemy2 import Geography
@@ -20,7 +20,7 @@ class Hospital(Base):
     hospital_code = Column(String(50), unique=True, nullable=True, index=True)
 
     # Contact information
-    phone_numbers = Column(ARRAY(String), nullable=False)  # Array of contact numbers
+    phone_numbers = Column(JSON().with_variant(ARRAY(String), "postgresql"), nullable=False)  # Contact numbers list
     email = Column(String(255), nullable=True)
     emergency_contact = Column(String(20), nullable=True)
 
@@ -33,7 +33,7 @@ class Hospital(Base):
 
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    location = Column(Geography(geometry_type='POINT', srid=4326), nullable=False, index=True)
+    location = Column(Geography(geometry_type='POINT', srid=4326), nullable=True, index=True)
 
     # Services and capabilities
     has_emergency_dept = Column(Boolean, default=True, nullable=False)
@@ -59,7 +59,7 @@ class Hospital(Base):
     # Additional information
     description = Column(Text, nullable=True)
     website = Column(String(255), nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Status
     is_active = Column(Boolean, default=True, nullable=False)

@@ -3,7 +3,7 @@ Audit Log Model
 Tracks all administrative actions and system events
 """
 
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.database import Base
@@ -32,8 +32,8 @@ class AuditLog(Base):
     user_agent = Column(Text, nullable=True)
 
     # Change tracking
-    old_values = Column(JSONB, nullable=True)
-    new_values = Column(JSONB, nullable=True)
+    old_values = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    new_values = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Result
     success = Column(String(10), default=True, nullable=False)
@@ -41,7 +41,7 @@ class AuditLog(Base):
 
     # Additional context
     description = Column(Text, nullable=True)
-    metadata = Column(JSONB, nullable=True)
+    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
 
     # Timestamp
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)

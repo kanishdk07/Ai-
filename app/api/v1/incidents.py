@@ -66,11 +66,8 @@ async def create_incident(
         "longitude": incident.longitude,
     })
 
-    # If auto-notification is enabled and incident is eligible, start notification workflow
+    # If auto-notification is enabled and incident is eligible, schedule notification workflow
     if settings.AUTO_NOTIFICATION_ENABLED and incident.latitude and incident.longitude:
-        # Activate incident for notification
-        await IncidentService.activate_incident(db, incident.id)
-
         # Schedule notifications
         scheduler = get_scheduler()
         background_tasks.add_task(
@@ -197,6 +194,51 @@ async def acknowledge_incident(
         hospital_name=hospital_name,
         message="Incident acknowledged successfully. Emergency response en route."
     )
+
+
+@router.get("/{incident_id}/acknowledge", response_model=IncidentAcknowledgeResponse)
+async def acknowledge_incident_via_link(
+    incident_id: UUID,
+    token: str = Query(..., description="Secure acknowledgment token from emergency alert notification"),
+    notes: Optional[str] = Query(None, description="Optional response notes"),
+    responder_name: Optional[str] = Query(None, description="Responder name or title"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Acknowledge an incident via secure HTTP link (Requirement 7)
+    """
+    ack_req = IncidentAcknowledgeRequest(
+        acknowledgment_token=token,
+        notes=notes or "Acknowledged via link",
+        responder_name=responder_name or "Emergency Responder"
+    )
+    return await acknowledge_incident(incident_id=incident_id, acknowledge_data=ack_req, db=db, current_user=None)
+
+
+@router.get("/{incident_id}/images", response_model=list)
+async def get_incident_images(
+    incident_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get accident images metadata for an incident (Requirement 9)
+    """
+    from app.services.image_service import ImageService
+    images = await ImageService.get_images_for_incident(db, incident_id)
+    return [
+        {
+            "id": str(img.id),
+            "image_id": img.image_id,
+            "incident_id": str(img.incident_id),
+            "camera_id": str(img.camera_id) if img.camera_id else None,
+            "capture_timestamp": img.capture_timestamp.isoformat() if img.capture_timestamp else None,
+            "storage_reference": img.storage_reference,
+            "file_type": img.file_type,
+            "image_verification_status": img.image_verification_status,
+        }
+        for img in images
+    ]
 
 
 @router.post("/{incident_id}/resolve", response_model=IncidentResponse)

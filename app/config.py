@@ -77,6 +77,17 @@ class Settings(BaseSettings):
     SMS_AUTH_TOKEN: Optional[str] = None
     SMS_FROM_NUMBER: Optional[str] = None
 
+    # Firebase Cloud Messaging
+    FCM_ENABLED: bool = False
+    FCM_SERVER_KEY: Optional[str] = None
+    FCM_PROJECT_ID: Optional[str] = None
+    FCM_CREDENTIALS_FILE: Optional[str] = None
+
+    # SendGrid Email Configuration
+    SENDGRID_ENABLED: bool = False
+    SENDGRID_API_KEY: Optional[str] = None
+    SENDGRID_FROM_EMAIL: Optional[str] = None
+
     # Email Configuration
     EMAIL_ENABLED: bool = False
     SMTP_HOST: Optional[str] = None
@@ -92,11 +103,13 @@ class Settings(BaseSettings):
     DEFAULT_ADMIN_EMAIL: str = "admin@example.com"
     DEFAULT_ADMIN_PASSWORD: str = "ChangeThisPassword123!"
 
-    # File Upload
+    # File / Image Storage
     MAX_UPLOAD_SIZE_MB: int = 10
     UPLOAD_DIR: str = "uploads"
+    IMAGE_STORAGE_PATH: str = "uploads/images"
+    IMAGE_SERVE_SECURE: bool = True
 
-    # WebSocket
+    # WebSocket Configuration
     WS_HEARTBEAT_INTERVAL: int = 30
     WS_MAX_CONNECTIONS: int = 100
 
@@ -115,6 +128,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 @lru_cache()

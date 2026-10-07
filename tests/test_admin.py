@@ -55,6 +55,13 @@ async def test_enable_maintenance_mode(client: AsyncClient, admin_headers: dict)
     data = response.json()
     assert data["maintenance_mode"] == True
 
+    # Reset maintenance mode
+    await client.post(
+        "/api/v1/admin/maintenance",
+        json={"enabled": False, "reason": "Test finished"},
+        headers=admin_headers
+    )
+
 
 @pytest.mark.asyncio
 async def test_system_health_check(client: AsyncClient):

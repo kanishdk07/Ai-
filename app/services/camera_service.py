@@ -62,7 +62,7 @@ class CameraService:
             longitude=camera_data.longitude,
             connection_config=connection_config,
             description=camera_data.description,
-            metadata=camera_data.metadata,
+            meta_data=camera_data.metadata,
             created_by=user_id,
         )
 

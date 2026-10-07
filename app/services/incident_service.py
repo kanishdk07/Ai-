@@ -49,6 +49,16 @@ class IncidentService:
                 detail="Invalid incident_id format"
             )
 
+        # Check idempotency key if provided (must precede duplicate incident_id check for retries)
+        if incident_data.idempotency_key:
+            result = await db.execute(
+                select(Incident).where(Incident.idempotency_key == incident_data.idempotency_key)
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                logger.info(f"Idempotent request detected, returning existing incident: {existing.incident_id}")
+                return existing
+
         # Check for duplicate incident_id
         result = await db.execute(
             select(Incident).where(Incident.incident_id == incident_data.incident_id)
@@ -58,16 +68,6 @@ class IncidentService:
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Incident with ID {incident_data.incident_id} already exists"
             )
-
-        # Check idempotency key if provided
-        if incident_data.idempotency_key:
-            result = await db.execute(
-                select(Incident).where(Incident.idempotency_key == incident_data.idempotency_key)
-            )
-            existing = result.scalar_one_or_none()
-            if existing:
-                logger.info(f"Idempotent request detected, returning existing incident: {existing.incident_id}")
-                return existing
 
         # Find camera by external ID if provided
         camera_id = None
@@ -252,23 +252,54 @@ class IncidentService:
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid acknowledgment token"
                 )
-            # Use hospital_id from token
-            acknowledge_data.hospital_id = UUID(token_data["hospital_id"])
+            # Use hospital_id from token if valid UUID
+            if token_data.get("hospital_id") and token_data["hospital_id"] != "manual":
+                try:
+                    acknowledge_data.hospital_id = UUID(token_data["hospital_id"])
+                except ValueError:
+                    pass
 
         # Update incident
         incident.status = IncidentStatus.ACKNOWLEDGED
-        incident.acknowledged_at = datetime.utcnow()
+        now_ts = datetime.utcnow()
+        incident.acknowledged_at = now_ts
         incident.acknowledged_by_hospital_id = acknowledge_data.hospital_id
         incident.acknowledgment_details = {
             "notes": acknowledge_data.notes,
             "responder_name": acknowledge_data.responder_name,
         }
-        incident.notification_stopped_at = datetime.utcnow()
+        incident.notification_stopped_at = now_ts
+
+        # Create HospitalResponse record (Requirement 3 & 7)
+        from app.models.hospital_response import HospitalResponse, ResponseType, VerificationStatus
+        response_rec = HospitalResponse(
+            response_id=generate_secure_id("RESP-"),
+            incident_id=incident.id,
+            hospital_id=acknowledge_data.hospital_id,
+            verified_recipient_ref=acknowledge_data.responder_name or "Hospital Staff",
+            response_type=ResponseType.WEB.value,
+            response_timestamp=now_ts,
+            verification_status=VerificationStatus.VERIFIED.value,
+            responder_name=acknowledge_data.responder_name,
+            notes=acknowledge_data.notes,
+            raw_payload={
+                "hospital_id": str(acknowledge_data.hospital_id) if acknowledge_data.hospital_id else None,
+                "notes": acknowledge_data.notes,
+                "responder_name": acknowledge_data.responder_name
+            }
+        )
+        db.add(response_rec)
+
+        # Cancel all pending notifications and stop background repeat jobs (Requirement 6 & 7)
+        from app.services.notification_service import NotificationService
+        from app.services.scheduler_service import get_scheduler
+        await NotificationService.cancel_notifications_for_incident(db, incident.id)
+        await get_scheduler().stop_incident_notifications(incident.id)
 
         await db.commit()
         await db.refresh(incident)
 
-        logger.info(f"Incident acknowledged: {incident.incident_id}")
+        logger.info(f"Incident acknowledged & notifications cancelled: {incident.incident_id}")
         return incident
 
     @staticmethod
@@ -299,6 +330,11 @@ class IncidentService:
 
         if incident.notification_stopped_at is None:
             incident.notification_stopped_at = datetime.utcnow()
+
+        from app.services.notification_service import NotificationService
+        from app.services.scheduler_service import get_scheduler
+        await NotificationService.cancel_notifications_for_incident(db, incident.id)
+        await get_scheduler().stop_incident_notifications(incident.id)
 
         await db.commit()
         await db.refresh(incident)
@@ -334,6 +370,11 @@ class IncidentService:
 
         if incident.notification_stopped_at is None:
             incident.notification_stopped_at = datetime.utcnow()
+
+        from app.services.notification_service import NotificationService
+        from app.services.scheduler_service import get_scheduler
+        await NotificationService.cancel_notifications_for_incident(db, incident.id)
+        await get_scheduler().stop_incident_notifications(incident.id)
 
         await db.commit()
         await db.refresh(incident)
