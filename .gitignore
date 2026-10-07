@@ -76,6 +76,14 @@ alembic/versions/*.pyc
 Thumbs.db
 .DS_Store
 
+# AI Model Weights & Storage
+*.pt
+*.onnx
+*.engine
+storage/
+evidence/
+
 # Backup files
 *.bak
 *.backup
+
