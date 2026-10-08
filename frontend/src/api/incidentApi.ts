@@ -165,5 +165,18 @@ export const incidentApi = {
       }
       throw new Error('Incident not found');
     }
+  },
+
+  async uploadVideo(file: File, cameraId?: string, latitude?: number, longitude?: number): Promise<any> {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (cameraId) formData.append('camera_id', cameraId);
+    if (latitude !== undefined) formData.append('latitude', latitude.toString());
+    if (longitude !== undefined) formData.append('longitude', longitude.toString());
+
+    const res = await apiClient.post('/incidents/upload-video', formData, {
+      timeout: 300000, // 5 minutes timeout for AI frame processing
+    });
+    return res.data;
   }
 };
