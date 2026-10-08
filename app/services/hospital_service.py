@@ -8,8 +8,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, text
 from fastapi import HTTPException, status
-from geoalchemy2.functions import ST_Distance, ST_SetSRID, ST_MakePoint
-from geoalchemy2 import Geography
+# GeoAlchemy2 available for PostgreSQL; Haversine used for SQLite
 from app.models import Hospital
 from app.schemas.hospital import HospitalCreate, HospitalUpdate
 from app.config import settings
@@ -59,11 +58,7 @@ class HospitalService:
             meta_data=hospital_data.metadata,
         )
 
-        # Set PostGIS location
-        new_hospital.location = func.ST_SetSRID(
-            func.ST_MakePoint(hospital_data.longitude, hospital_data.latitude),
-            4326
-        )
+        # (PostGIS location column removed for SQLite compatibility; lat/lon stored as Float)
 
         db.add(new_hospital)
         await db.commit()
@@ -73,9 +68,9 @@ class HospitalService:
         return new_hospital
 
     @staticmethod
-    async def get_hospital(db: AsyncSession, hospital_id: UUID) -> Optional[Hospital]:
-        """Get hospital by ID"""
-        result = await db.execute(select(Hospital).where(Hospital.id == hospital_id))
+    async def get_hospital(db: AsyncSession, hospital_id: str) -> Optional[Hospital]:
+        """Get hospital by string ID"""
+        result = await db.execute(select(Hospital).where(Hospital.id == str(hospital_id)))
         return result.scalar_one_or_none()
 
     @staticmethod

@@ -4,7 +4,6 @@ Stores and tracks hospital and responder acknowledgment responses
 """
 
 from sqlalchemy import Column, String, DateTime, Text, ForeignKey, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.database import Base
 import uuid
@@ -31,12 +30,12 @@ class HospitalResponse(Base):
     """Hospital Response model for incident acknowledgments"""
     __tablename__ = "hospital_responses"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     response_id = Column(String(100), unique=True, nullable=False, index=True)
 
     # Incident and Hospital reference
-    incident_id = Column(UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True)
-    hospital_id = Column(UUID(as_uuid=True), ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True, index=True)
+    incident_id = Column(String(36), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True)
+    hospital_id = Column(String(36), ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True, index=True)
     verified_recipient_ref = Column(String(255), nullable=True)  # Phone number, email, or credential ref
 
     # Response details
@@ -47,10 +46,10 @@ class HospitalResponse(Base):
     # Additional notes & responder details
     responder_name = Column(String(255), nullable=True)
     notes = Column(Text, nullable=True)
-    raw_payload = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    raw_payload = Column(JSON, nullable=True)
 
     # Metadata
-    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

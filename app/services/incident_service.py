@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
 from fastapi import HTTPException, status
-from geoalchemy2.functions import ST_SetSRID, ST_MakePoint
+from geoalchemy2.functions import ST_SetSRID, ST_MakePoint  # noqa: F401 — available for PostgreSQL; not used in SQLite mode
 from app.models import Incident, IncidentStatus, SeverityLevel, Camera
 from app.schemas.incident import (
     IncidentCreate,
@@ -102,12 +102,7 @@ class IncidentService:
             status=IncidentStatus.DETECTED,
         )
 
-        # Set PostGIS location if coordinates provided
-        if incident_data.latitude and incident_data.longitude:
-            new_incident.location = func.ST_SetSRID(
-                func.ST_MakePoint(incident_data.longitude, incident_data.latitude),
-                4326
-            )
+        # (PostGIS location column removed for SQLite compatibility; lat/lon stored as Float)
 
         db.add(new_incident)
         await db.commit()
@@ -117,9 +112,9 @@ class IncidentService:
         return new_incident
 
     @staticmethod
-    async def get_incident(db: AsyncSession, incident_id: UUID) -> Optional[Incident]:
-        """Get incident by UUID"""
-        result = await db.execute(select(Incident).where(Incident.id == incident_id))
+    async def get_incident(db: AsyncSession, incident_id: str) -> Optional[Incident]:
+        """Get incident by string ID"""
+        result = await db.execute(select(Incident).where(Incident.id == str(incident_id)))
         return result.scalar_one_or_none()
 
     @staticmethod
@@ -135,7 +130,7 @@ class IncidentService:
         limit: int = 100,
         status: Optional[IncidentStatus] = None,
         severity: Optional[SeverityLevel] = None,
-        camera_id: Optional[UUID] = None,
+        camera_id: Optional[str] = None,
     ) -> Tuple[List[Incident], int]:
         """Get list of incidents with pagination and filters"""
         query = select(Incident)
@@ -183,7 +178,7 @@ class IncidentService:
     @staticmethod
     async def update_incident(
         db: AsyncSession,
-        incident_id: UUID,
+        incident_id: str,
         incident_data: IncidentUpdate
     ) -> Incident:
         """Update incident"""
@@ -208,7 +203,7 @@ class IncidentService:
     @staticmethod
     async def acknowledge_incident(
         db: AsyncSession,
-        incident_id: UUID,
+        incident_id: str,
         acknowledge_data: IncidentAcknowledgeRequest
     ) -> Incident:
         """
@@ -305,9 +300,9 @@ class IncidentService:
     @staticmethod
     async def resolve_incident(
         db: AsyncSession,
-        incident_id: UUID,
+        incident_id: str,
         resolve_data: IncidentResolveRequest,
-        user_id: UUID
+        user_id: str
     ) -> Incident:
         """Resolve an incident"""
         incident = await IncidentService.get_incident(db, incident_id)
@@ -345,9 +340,9 @@ class IncidentService:
     @staticmethod
     async def cancel_incident(
         db: AsyncSession,
-        incident_id: UUID,
+        incident_id: str,
         reason: str,
-        user_id: UUID
+        user_id: str
     ) -> Incident:
         """Cancel an incident"""
         incident = await IncidentService.get_incident(db, incident_id)
@@ -383,7 +378,7 @@ class IncidentService:
         return incident
 
     @staticmethod
-    async def activate_incident(db: AsyncSession, incident_id: UUID) -> Incident:
+    async def activate_incident(db: AsyncSession, incident_id: str) -> Incident:
         """Move incident to active status for notification"""
         incident = await IncidentService.get_incident(db, incident_id)
         if not incident:

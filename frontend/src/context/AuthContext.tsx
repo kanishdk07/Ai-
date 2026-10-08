@@ -33,15 +33,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (storedToken && storedUser) {
         try {
-          setUser(JSON.parse(storedUser));
+          const parsedUser = JSON.parse(storedUser);
+          // Don't trust mock tokens — clear them and require real login
+          if (storedToken.startsWith('mock-')) {
+            localStorage.removeItem('safeway_access_token');
+            localStorage.removeItem('safeway_user');
+            setUser(null);
+          } else {
+            setUser(parsedUser);
+          }
         } catch {
-          setUser(mockUsers[0]);
+          localStorage.removeItem('safeway_access_token');
+          localStorage.removeItem('safeway_user');
+          setUser(null);
         }
       } else {
-        // Default to admin for immediate convenience, but allow logging out
-        setUser(mockUsers[0]);
-        localStorage.setItem('safeway_user', JSON.stringify(mockUsers[0]));
-        localStorage.setItem('safeway_access_token', 'mock-admin-token');
+        setUser(null);
       }
       setIsLoading(false);
     };

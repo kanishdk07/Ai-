@@ -4,7 +4,6 @@ Persists system configuration, repeat intervals, and maintenance mode settings
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Float, Integer, ForeignKey, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.database import Base
 import uuid
@@ -14,7 +13,7 @@ class AdminSetting(Base):
     """Admin Settings model for persistent system configuration"""
     __tablename__ = "admin_settings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
 
     # Core settings
     auto_notification_enabled = Column(Boolean, default=False, nullable=False)
@@ -30,10 +29,10 @@ class AdminSetting(Base):
 
     # System version and audit
     system_configuration_version = Column(Integer, default=1, nullable=False)
-    last_updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_updated_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # Additional metadata
-    extra_config = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    extra_config = Column(JSON, nullable=True)
 
     # Timestamps
     last_updated_timestamp = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

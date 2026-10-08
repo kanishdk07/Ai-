@@ -4,10 +4,7 @@ Handles accident detection events and incident lifecycle
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Float, ForeignKey, Integer, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
-from sqlalchemy.orm import relationship
-from geoalchemy2 import Geography
 from app.database import Base
 import uuid
 import enum
@@ -36,11 +33,11 @@ class Incident(Base):
     """Incident model for detected accidents"""
     __tablename__ = "incidents"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     incident_id = Column(String(100), unique=True, nullable=False, index=True)
 
     # Camera reference
-    camera_id = Column(UUID(as_uuid=True), ForeignKey("cameras.id", ondelete="SET NULL"), nullable=True)
+    camera_id = Column(String(36), ForeignKey("cameras.id", ondelete="SET NULL"), nullable=True)
     camera_external_id = Column(String(100), nullable=True)  # AI module's camera ID
 
     # Detection details
@@ -52,19 +49,18 @@ class Incident(Base):
     # Location
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
-    location = Column(Geography(geometry_type='POINT', srid=4326), nullable=True)
     location_description = Column(String(500), nullable=True)
 
     # Vehicle information
     vehicle_count = Column(Integer, default=0, nullable=True)
-    vehicle_info = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # Detailed vehicle data from AI
+    vehicle_info = Column(JSON, nullable=True)  # Detailed vehicle data from AI
 
     # Media
     accident_image_url = Column(String(500), nullable=True)
-    additional_media = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    additional_media = Column(JSON, nullable=True)
 
     # AI event details
-    ai_event_data = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    ai_event_data = Column(JSON, nullable=True)
 
     # Status and lifecycle
     status = Column(SQLEnum(IncidentStatus), nullable=False, default=IncidentStatus.DETECTED, index=True)
@@ -76,17 +72,17 @@ class Incident(Base):
 
     # Acknowledgment details
     acknowledged_at = Column(DateTime(timezone=True), nullable=True)
-    acknowledged_by_hospital_id = Column(UUID(as_uuid=True), nullable=True)
-    acknowledgment_details = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    acknowledged_by_hospital_id = Column(String(36), nullable=True)
+    acknowledgment_details = Column(JSON, nullable=True)
 
     # Resolution
     resolved_at = Column(DateTime(timezone=True), nullable=True)
-    resolved_by = Column(UUID(as_uuid=True), nullable=True)
+    resolved_by = Column(String(36), nullable=True)
     resolution_notes = Column(Text, nullable=True)
 
     # Metadata
     notes = Column(Text, nullable=True)
-    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Idempotency
     idempotency_key = Column(String(255), unique=True, nullable=True, index=True)

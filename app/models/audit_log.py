@@ -4,7 +4,6 @@ Tracks all administrative actions and system events
 """
 
 from sqlalchemy import Column, String, DateTime, Text, ForeignKey, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.database import Base
 import uuid
@@ -14,10 +13,10 @@ class AuditLog(Base):
     """Audit log model for tracking system events"""
     __tablename__ = "audit_logs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
 
     # User who performed the action
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     username = Column(String(100), nullable=True)
 
     # Action details
@@ -32,16 +31,16 @@ class AuditLog(Base):
     user_agent = Column(Text, nullable=True)
 
     # Change tracking
-    old_values = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
-    new_values = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    old_values = Column(JSON, nullable=True)
+    new_values = Column(JSON, nullable=True)
 
     # Result
-    success = Column(String(10), default=True, nullable=False)
+    success = Column(String(10), default="true", nullable=False)
     error_message = Column(Text, nullable=True)
 
     # Additional context
     description = Column(Text, nullable=True)
-    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Timestamp
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)

@@ -4,12 +4,17 @@ Handles camera registration and monitoring
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Integer, Float, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
-from geoalchemy2 import Geography
 from app.database import Base
 import uuid
 import enum
+
+# Use PostgreSQL UUID type if available, else String
+try:
+    from sqlalchemy.dialects.postgresql import UUID
+    _UUID = UUID(as_uuid=True)
+except Exception:
+    _UUID = String(36)
 
 
 class CameraType(str, enum.Enum):
@@ -33,7 +38,7 @@ class Camera(Base):
     """Camera model for managing detection cameras"""
     __tablename__ = "cameras"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     camera_id = Column(String(100), unique=True, nullable=False, index=True)
     name = Column(String(255), nullable=False)
     camera_type = Column(SQLEnum(CameraType), nullable=False, default=CameraType.SYSTEM)
@@ -42,11 +47,10 @@ class Camera(Base):
     location_name = Column(String(255), nullable=True)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
-    # PostGIS geography point for spatial queries
-    location = Column(Geography(geometry_type='POINT', srid=4326), nullable=True)
+    # lat/lon stored as Float; spatial queries use Haversine formula
 
-    # Connection configuration (encrypted sensitive data)
-    connection_config = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)  # Store RTSP URL, credentials (encrypted)
+    # Connection configuration
+    connection_config = Column(JSON, nullable=True)
 
     # Status and health
     status = Column(SQLEnum(CameraStatus), nullable=False, default=CameraStatus.OFFLINE)
@@ -61,12 +65,12 @@ class Camera(Base):
 
     # Additional metadata
     description = Column(Text, nullable=True)
-    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
-    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_by = Column(String(36), nullable=True)
 
     def __repr__(self):
         return f"<Camera {self.camera_id} ({self.camera_type}) - {self.status}>"

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_
 from sqlalchemy.sql import func
 from fastapi import HTTPException, status
-from geoalchemy2.functions import ST_SetSRID, ST_MakePoint
+# GeoAlchemy2 available for PostgreSQL; lat/lon used directly for SQLite
 from app.models import Camera, CameraStatus, CameraType
 from app.schemas.camera import CameraCreate, CameraUpdate
 from app.utils.security import encrypt_camera_credentials, decrypt_camera_credentials
@@ -66,12 +66,7 @@ class CameraService:
             created_by=user_id,
         )
 
-        # Set PostGIS location if coordinates provided
-        if camera_data.latitude and camera_data.longitude:
-            new_camera.location = func.ST_SetSRID(
-                func.ST_MakePoint(camera_data.longitude, camera_data.latitude),
-                4326
-            )
+        # (PostGIS location column removed for SQLite compatibility; lat/lon stored as Float)
 
         db.add(new_camera)
         await db.commit()
@@ -81,9 +76,9 @@ class CameraService:
         return new_camera
 
     @staticmethod
-    async def get_camera(db: AsyncSession, camera_id: UUID) -> Optional[Camera]:
-        """Get camera by UUID"""
-        result = await db.execute(select(Camera).where(Camera.id == camera_id))
+    async def get_camera(db: AsyncSession, camera_id: str) -> Optional[Camera]:
+        """Get camera by string ID"""
+        result = await db.execute(select(Camera).where(Camera.id == str(camera_id)))
         return result.scalar_one_or_none()
 
     @staticmethod

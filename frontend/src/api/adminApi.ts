@@ -9,9 +9,8 @@ let inMemoryAuditLogs = [...mockAuditLogs];
 export const adminApi = {
   async getSystemSettings(): Promise<SystemSettings> {
     try {
-      // In backend settings are returned or modified
-      const res = await apiClient.get<SystemSettings>('/admin/health'); // health includes some settings or fallback
-      return inMemorySettings;
+      const res = await apiClient.get<SystemSettings>('/admin/settings');
+      return res.data;
     } catch (err) {
       return inMemorySettings;
     }

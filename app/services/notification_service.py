@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple
 from uuid import UUID
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from fastapi import HTTPException, status
 from app.models import (
     Notification,
@@ -66,7 +66,7 @@ class NotificationService:
         if hospital_id:
             recipient_type = RecipientType.HOSPITAL
             # Get hospital details
-            hospital_result = await db.execute(select(Hospital).where(Hospital.id == hospital_id))
+            hospital_result = await db.execute(select(Hospital).where(Hospital.id == str(hospital_id)))
             hospital = hospital_result.scalar_one_or_none()
             if not hospital:
                 raise HTTPException(
@@ -95,7 +95,11 @@ class NotificationService:
             recipient_phone = formatted_phone
 
         # Get incident details for message
-        incident_result = await db.execute(select(Incident).where(Incident.id == incident_id))
+        incident_result = await db.execute(
+            select(Incident).where(
+                or_(Incident.id == str(incident_id), Incident.incident_id == str(incident_id))
+            )
+        )
         incident = incident_result.scalar_one_or_none()
         if not incident:
             raise HTTPException(
@@ -121,9 +125,9 @@ class NotificationService:
         notification_id = generate_secure_id("NOTIF-")
         new_notification = Notification(
             notification_id=notification_id,
-            incident_id=incident_id,
+            incident_id=str(incident.id),
             recipient_type=recipient_type,
-            hospital_id=hospital_id,
+            hospital_id=str(hospital_id) if hospital_id else None,
             recipient_phone=recipient_phone,
             recipient_email=recipient_email,
             recipient_name=recipient_name,
@@ -132,7 +136,7 @@ class NotificationService:
             message=message,
             is_repeat=is_repeat,
             repeat_sequence=repeat_sequence,
-            created_by=created_by,
+            created_by=str(created_by) if created_by else None,
         )
 
         db.add(new_notification)
@@ -288,7 +292,7 @@ class NotificationService:
         """Get all notifications for an incident"""
         result = await db.execute(
             select(Notification)
-            .where(Notification.incident_id == incident_id)
+            .where(Notification.incident_id == str(incident_id))
             .order_by(Notification.created_at.desc())
         )
         return list(result.scalars().all())
@@ -315,7 +319,7 @@ class NotificationService:
         result = await db.execute(
             select(Notification).where(
                 and_(
-                    Notification.incident_id == incident_id,
+                    Notification.incident_id == str(incident_id),
                     Notification.status.in_([
                         NotificationStatus.PENDING,
                         NotificationStatus.FAILED
