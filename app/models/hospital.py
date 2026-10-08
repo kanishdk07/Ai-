@@ -4,9 +4,7 @@ Manages hospital/emergency responder information
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Float, Text, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY
 from sqlalchemy.sql import func
-from geoalchemy2 import Geography
 from app.database import Base
 import uuid
 
@@ -15,14 +13,14 @@ class Hospital(Base):
     """Hospital/Emergency Responder model"""
     __tablename__ = "hospitals"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     name = Column(String(255), nullable=False)
     hospital_code = Column(String(50), unique=True, nullable=True, index=True)
 
     # Contact information
-    phone_numbers = Column(JSON().with_variant(ARRAY(String), "postgresql"), nullable=False)  # Contact numbers list
+    phone_numbers = Column(JSON, nullable=False)  # List of contact numbers
     email = Column(String(255), nullable=True)
-    emergency_contact = Column(String(20), nullable=True)
+    emergency_contact = Column(String(255), nullable=True)
 
     # Location
     address = Column(Text, nullable=False)
@@ -33,7 +31,7 @@ class Hospital(Base):
 
     latitude = Column(Float, nullable=False)
     longitude = Column(Float, nullable=False)
-    location = Column(Geography(geometry_type='POINT', srid=4326), nullable=True, index=True)
+    # lat/lon stored as Float; spatial queries use Haversine formula
 
     # Services and capabilities
     has_emergency_dept = Column(Boolean, default=True, nullable=False)
@@ -59,7 +57,7 @@ class Hospital(Base):
     # Additional information
     description = Column(Text, nullable=True)
     website = Column(String(255), nullable=True)
-    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Status
     is_active = Column(Boolean, default=True, nullable=False)
@@ -76,7 +74,10 @@ class Hospital(Base):
     @property
     def primary_phone(self) -> str:
         """Get primary phone number"""
-        return self.phone_numbers[0] if self.phone_numbers else None
+        phones = self.phone_numbers
+        if isinstance(phones, list):
+            return phones[0] if phones else None
+        return None
 
     @property
     def can_receive_notifications(self) -> bool:

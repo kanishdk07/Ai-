@@ -2,8 +2,8 @@
 Incident Management API Routes
 """
 
-from typing import Optional
 from uuid import UUID
+from typing import Optional, Union
 from fastapi import APIRouter, Depends, Query, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
@@ -185,7 +185,7 @@ async def get_incidents(
     limit: int = Query(100, ge=1, le=500),
     status: Optional[IncidentStatus] = None,
     severity: Optional[SeverityLevel] = None,
-    camera_id: Optional[UUID] = None,
+    camera_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -206,7 +206,7 @@ async def get_incidents(
 
 @router.get("/{incident_id}", response_model=IncidentResponse)
 async def get_incident(
-    incident_id: UUID,
+    incident_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -224,7 +224,7 @@ async def get_incident(
 
 @router.patch("/{incident_id}", response_model=IncidentResponse)
 async def update_incident(
-    incident_id: UUID,
+    incident_id: str,
     incident_data: IncidentUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),
@@ -249,7 +249,7 @@ async def update_incident(
 
 @router.post("/{incident_id}/acknowledge", response_model=IncidentAcknowledgeResponse)
 async def acknowledge_incident(
-    incident_id: UUID,
+    incident_id: str,
     acknowledge_data: IncidentAcknowledgeRequest,
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_user),
@@ -297,7 +297,7 @@ async def acknowledge_incident(
 
 @router.get("/{incident_id}/acknowledge", response_model=IncidentAcknowledgeResponse)
 async def acknowledge_incident_via_link(
-    incident_id: UUID,
+    incident_id: str,
     token: str = Query(..., description="Secure acknowledgment token from emergency alert notification"),
     notes: Optional[str] = Query(None, description="Optional response notes"),
     responder_name: Optional[str] = Query(None, description="Responder name or title"),
@@ -316,7 +316,7 @@ async def acknowledge_incident_via_link(
 
 @router.get("/{incident_id}/images", response_model=list)
 async def get_incident_images(
-    incident_id: UUID,
+    incident_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -342,7 +342,7 @@ async def get_incident_images(
 
 @router.post("/{incident_id}/resolve", response_model=IncidentResponse)
 async def resolve_incident(
-    incident_id: UUID,
+    incident_id: str,
     resolve_data: IncidentResolveRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),
@@ -371,7 +371,7 @@ async def resolve_incident(
 
 @router.post("/{incident_id}/cancel", response_model=IncidentResponse)
 async def cancel_incident(
-    incident_id: UUID,
+    incident_id: str,
     cancel_data: IncidentCancelRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),

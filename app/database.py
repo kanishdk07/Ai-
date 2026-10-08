@@ -12,13 +12,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Engine kwargs
-engine_kwargs = {
+_is_sqlite = "sqlite" in settings.DATABASE_URL
+engine_kwargs: dict = {
     "echo": settings.DATABASE_ECHO,
-    "pool_pre_ping": True,
 }
-if "sqlite" not in settings.DATABASE_URL:
+if not _is_sqlite:
+    engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["pool_size"] = settings.DATABASE_POOL_SIZE
     engine_kwargs["max_overflow"] = settings.DATABASE_MAX_OVERFLOW
+else:
+    # SQLite: use StaticPool to allow use across async tasks
+    from sqlalchemy.pool import StaticPool
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+    engine_kwargs["poolclass"] = StaticPool
 
 # Create async engine
 engine = create_async_engine(

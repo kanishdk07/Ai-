@@ -70,7 +70,7 @@ async def get_cameras(
 
 @router.get("/{camera_id}", response_model=CameraResponse)
 async def get_camera(
-    camera_id: UUID,
+    camera_id: str,
     db: AsyncSession = Depends(get_db),
     _: None = Depends(check_maintenance_mode),
 ):
@@ -88,7 +88,7 @@ async def get_camera(
 
 @router.patch("/{camera_id}", response_model=CameraResponse)
 async def update_camera(
-    camera_id: UUID,
+    camera_id: str,
     camera_data: CameraUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),
@@ -113,7 +113,7 @@ async def update_camera(
 
 @router.post("/{camera_id}/start", response_model=CameraResponse)
 async def start_camera_monitoring(
-    camera_id: UUID,
+    camera_id: str,
     action_data: CameraActionRequest = CameraActionRequest(),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),
@@ -139,7 +139,7 @@ async def start_camera_monitoring(
 
 @router.post("/{camera_id}/stop", response_model=CameraResponse)
 async def stop_camera_monitoring(
-    camera_id: UUID,
+    camera_id: str,
     action_data: CameraActionRequest = CameraActionRequest(),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),
@@ -165,7 +165,7 @@ async def stop_camera_monitoring(
 
 @router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_camera(
-    camera_id: UUID,
+    camera_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),
     _: None = Depends(check_maintenance_mode),

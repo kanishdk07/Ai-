@@ -4,7 +4,6 @@ Tracks emergency notifications sent to hospitals
 """
 
 from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, Text, Float, ForeignKey, Integer, JSON
-from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from app.database import Base
 import uuid
@@ -41,15 +40,15 @@ class Notification(Base):
     """Notification model for tracking emergency alerts"""
     __tablename__ = "notifications"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), index=True)
     notification_id = Column(String(100), unique=True, nullable=False, index=True)
 
     # Incident reference
-    incident_id = Column(UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True)
+    incident_id = Column(String(36), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True)
 
     # Recipient information
     recipient_type = Column(SQLEnum(RecipientType), nullable=False, default=RecipientType.HOSPITAL)
-    hospital_id = Column(UUID(as_uuid=True), ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True)
+    hospital_id = Column(String(36), ForeignKey("hospitals.id", ondelete="SET NULL"), nullable=True)
     recipient_phone = Column(String(20), nullable=True)
     recipient_email = Column(String(255), nullable=True)
     recipient_name = Column(String(255), nullable=True)
@@ -74,29 +73,29 @@ class Notification(Base):
     next_retry_at = Column(DateTime(timezone=True), nullable=True)
 
     # Response tracking
-    response_data = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    response_data = Column(JSON, nullable=True)
     error_message = Column(Text, nullable=True)
 
     # Provider details
-    provider = Column(String(50), nullable=True)  # twilio, sendgrid, etc.
+    provider = Column(String(50), nullable=True)
     provider_message_id = Column(String(255), nullable=True)
-    provider_response = Column(JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    provider_response = Column(JSON, nullable=True)
 
     # Repeat notification tracking
     is_repeat = Column(Boolean, default=False, nullable=False)
     repeat_sequence = Column(Integer, default=1, nullable=False)
-    parent_notification_id = Column(UUID(as_uuid=True), nullable=True)
+    parent_notification_id = Column(String(36), nullable=True)
 
     # Job tracking
     job_id = Column(String(255), nullable=True, index=True)
 
     # Metadata
-    meta_data = Column("metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True)
+    meta_data = Column("metadata", JSON, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
-    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_by = Column(String(36), nullable=True)
 
     def __repr__(self):
         return f"<Notification {self.notification_id} - {self.notification_type} - {self.status}>"

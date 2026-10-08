@@ -55,7 +55,7 @@ async def send_manual_notification(
 
 @router.post("/{incident_id}/stop", response_model=dict)
 async def stop_incident_notifications(
-    incident_id: UUID,
+    incident_id: str,
     stop_data: StopNotificationRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),

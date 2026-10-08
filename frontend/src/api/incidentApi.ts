@@ -73,17 +73,25 @@ export const incidentApi = {
   },
 
   async verifyIncident(id: string, notes?: string): Promise<Incident> {
-    const idx = inMemoryIncidents.findIndex((i) => i.id === id || i.incident_id === id);
-    if (idx !== -1) {
-      inMemoryIncidents[idx] = {
-        ...inMemoryIncidents[idx],
+    try {
+      const res = await apiClient.patch<Incident>(`/incidents/${id}`, {
         status: 'active',
-        notes: notes || inMemoryIncidents[idx].notes || 'Verified by operator as confirmed accident.',
-        updated_at: new Date().toISOString(),
-      };
-      return inMemoryIncidents[idx];
+        notes: notes || 'Verified by operator as confirmed accident.',
+      });
+      return res.data;
+    } catch (err) {
+      const idx = inMemoryIncidents.findIndex((i) => i.id === id || i.incident_id === id);
+      if (idx !== -1) {
+        inMemoryIncidents[idx] = {
+          ...inMemoryIncidents[idx],
+          status: 'active',
+          notes: notes || inMemoryIncidents[idx].notes || 'Verified by operator as confirmed accident.',
+          updated_at: new Date().toISOString(),
+        };
+        return inMemoryIncidents[idx];
+      }
+      throw new Error('Incident not found');
     }
-    throw new Error('Incident not found');
   },
 
   async acknowledgeIncident(id: string, data: {

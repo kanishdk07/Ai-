@@ -86,7 +86,7 @@ async def get_nearby_hospitals(
 
 @router.get("/{hospital_id}", response_model=HospitalResponse)
 async def get_hospital(
-    hospital_id: UUID,
+    hospital_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -104,7 +104,7 @@ async def get_hospital(
 
 @router.patch("/{hospital_id}", response_model=HospitalResponse)
 async def update_hospital(
-    hospital_id: UUID,
+    hospital_id: str,
     hospital_data: HospitalUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_operator_or_admin),
