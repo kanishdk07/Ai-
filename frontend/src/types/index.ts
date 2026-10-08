@@ -223,3 +223,21 @@ export interface WebSocketMessage<T = any> {
   data: T;
   timestamp?: string | null;
 }
+
+// ─── Emergency Contact Notification Settings (NEW) ────────────────────────────
+
+export interface NotificationSettings {
+  emergency_contact_number: string | null;
+  emergency_notifications_enabled: boolean;
+  hospital_notifications_enabled: boolean;
+  updated_at?: string;
+}
+
+export interface TestNotificationResult {
+  sent: boolean;
+  message: string;
+  recipient?: string | null;
+  provider?: string | null;
+  timestamp: string;
+}
+

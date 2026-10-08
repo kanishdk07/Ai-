@@ -23,6 +23,11 @@ class AdminSetting(Base):
     monitoring_status = Column(String(50), default="active", nullable=False)
     default_hospital_search_radius = Column(Float, default=50.0, nullable=False)
 
+    # Emergency Contact Notification Settings (NEW)
+    emergency_contact_number = Column(String(20), nullable=True)  # E.164 format, e.g. +919876543210
+    emergency_notifications_enabled = Column(Boolean, default=False, nullable=False)
+    hospital_notifications_enabled = Column(Boolean, default=False, nullable=False)
+
     # System version and audit
     system_configuration_version = Column(Integer, default=1, nullable=False)
     last_updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

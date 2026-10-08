@@ -77,7 +77,106 @@ async def create_incident(
 
         logger.info(f"Auto-notification scheduled for incident {incident.incident_id}")
 
+    # --- NEW: Emergency Contact Notification (does NOT affect existing logic) ---
+    # Runs in background so any failure never blocks the incident creation response
+    background_tasks.add_task(
+        _send_emergency_contact_notification,
+        db,
+        incident,
+    )
+
     return incident
+
+
+async def _send_emergency_contact_notification(db, incident) -> None:
+    """
+    Background task: send a single SMS to the configured emergency contact
+    number if emergency_notifications_enabled is True.
+
+    Rules:
+    - Uses a per-incident deduplication: only fires once for each unique incident.id.
+    - Does NOT modify the AI detection algorithm.
+    - Does NOT notify hospitals.
+    - Any exception is logged and swallowed so the main app is never crashed.
+    """
+    import asyncio
+    from sqlalchemy import select
+    from app.models.admin_setting import AdminSetting
+    from app.services.notification_providers import NotificationProviderFactory
+    from datetime import datetime
+
+    # Simple in-process deduplication set (covers repeated calls within same process lifetime)
+    if not hasattr(_send_emergency_contact_notification, "_sent_incident_ids"):
+        _send_emergency_contact_notification._sent_incident_ids = set()  # type: ignore[attr-defined]
+
+    incident_uuid = str(incident.id)
+    if incident_uuid in _send_emergency_contact_notification._sent_incident_ids:  # type: ignore[attr-defined]
+        logger.debug(f"Emergency contact notification already sent for incident {incident.incident_id} — skipping duplicate.")
+        return
+
+    try:
+        # Use a new DB session-level read — db is already the request session passed from route
+        res = await db.execute(select(AdminSetting).order_by(AdminSetting.created_at.desc()).limit(1))
+        db_setting = res.scalar_one_or_none()
+
+        if not db_setting or not db_setting.emergency_notifications_enabled:
+            logger.debug(f"Emergency contact notifications OFF — skipping for incident {incident.incident_id}.")
+            return
+
+        contact_number = db_setting.emergency_contact_number
+        if not contact_number:
+            logger.warning(
+                f"Emergency notifications enabled but no contact number configured. "
+                f"Skipping for incident {incident.incident_id}."
+            )
+            return
+
+        # Build emergency alert message
+        severity_text = incident.severity.value.upper() if incident.severity else "UNKNOWN"
+        location_text = incident.location_description or "Highway Segment"
+        coords_str = (
+            f"{incident.latitude:.5f}, {incident.longitude:.5f}"
+            if incident.latitude and incident.longitude
+            else "N/A"
+        )
+        detected_time = (
+            incident.detected_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            if incident.detected_at
+            else datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        )
+
+        message = (
+            f"SafeWay Accident Alert: An accident has been detected.\n"
+            f"ID: {incident.incident_id}\n"
+            f"Severity: {severity_text}\n"
+            f"Time: {detected_time}\n"
+            f"Location: {location_text} (GPS: {coords_str})\n"
+            f"Please dispatch emergency services immediately."
+        )
+
+        provider = NotificationProviderFactory.get_provider(channel="sms")
+        result = await provider.send_sms(to_phone=contact_number, message=message)
+
+        if result.success:
+            _send_emergency_contact_notification._sent_incident_ids.add(incident_uuid)  # type: ignore[attr-defined]
+            logger.info(
+                f"Emergency contact notification sent to {contact_number} "
+                f"for incident {incident.incident_id} via {result.provider_name}."
+            )
+        else:
+            logger.warning(
+                f"Emergency contact notification FAILED for incident {incident.incident_id}: "
+                f"{result.error_message}"
+            )
+
+    except Exception as exc:
+        # CRITICAL: must not crash the application
+        logger.error(
+            f"Emergency contact notification exception for incident {incident.incident_id}: {exc}",
+            exc_info=True,
+        )
+
+
 
 
 @router.get("", response_model=IncidentListResponse)

@@ -19,6 +19,10 @@ from app.schemas.admin import (
     AuditLogListResponse,
     EmergencyStopRequest,
     EmergencyStopResponse,
+    # New: emergency contact notification settings
+    NotificationSettingsUpdate,
+    NotificationSettingsResponse,
+    TestNotificationResponse,
 )
 from app.models import User, Incident, IncidentStatus, Camera, CameraStatus
 from app.services.scheduler_service import get_scheduler
@@ -368,3 +372,202 @@ async def get_audit_logs(
         page=skip // limit + 1,
         page_size=limit,
     )
+
+
+# ─── Emergency Contact Notification Settings (NEW) ────────────────────────────
+
+
+@router.get("/notification-settings", response_model=NotificationSettingsResponse)
+async def get_notification_settings(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """
+    Get current emergency contact notification settings.
+    Requires admin role.
+    """
+    from app.models.admin_setting import AdminSetting
+
+    res = await db.execute(select(AdminSetting).order_by(AdminSetting.created_at.desc()).limit(1))
+    db_setting = res.scalar_one_or_none()
+
+    if db_setting is None:
+        return NotificationSettingsResponse(
+            emergency_contact_number=None,
+            emergency_notifications_enabled=False,
+            hospital_notifications_enabled=False,
+            updated_at=datetime.utcnow(),
+        )
+
+    return NotificationSettingsResponse(
+        emergency_contact_number=db_setting.emergency_contact_number,
+        emergency_notifications_enabled=db_setting.emergency_notifications_enabled,
+        hospital_notifications_enabled=db_setting.hospital_notifications_enabled,
+        updated_at=db_setting.last_updated_timestamp,
+    )
+
+
+@router.patch("/notification-settings", response_model=NotificationSettingsResponse)
+async def update_notification_settings(
+    data: NotificationSettingsUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """
+    Update emergency contact notification settings.
+    Validates the phone number before saving.
+    Requires admin role.
+    """
+    from app.models.admin_setting import AdminSetting
+    from app.models.audit_log import AuditLog
+    from app.utils.validators import validate_phone_number, format_phone_number
+
+    # Validate phone number if provided
+    if data.emergency_contact_number is not None:
+        phone = data.emergency_contact_number.strip()
+        if phone:  # Non-empty string — validate
+            formatted = format_phone_number(phone)
+            if not formatted:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid phone number format. Use E.164 format e.g. +919876543210",
+                )
+            data = data.model_copy(update={"emergency_contact_number": formatted})
+        else:
+            # Allow clearing the number
+            data = data.model_copy(update={"emergency_contact_number": None})
+
+    # Load or create settings row
+    res = await db.execute(select(AdminSetting).order_by(AdminSetting.created_at.desc()).limit(1))
+    db_setting = res.scalar_one_or_none()
+    if not db_setting:
+        db_setting = AdminSetting(system_configuration_version=1)
+        db.add(db_setting)
+
+    # Apply updates
+    if data.emergency_contact_number is not None or data.emergency_contact_number == "":
+        db_setting.emergency_contact_number = data.emergency_contact_number
+    if data.emergency_notifications_enabled is not None:
+        db_setting.emergency_notifications_enabled = data.emergency_notifications_enabled
+    if data.hospital_notifications_enabled is not None:
+        db_setting.hospital_notifications_enabled = data.hospital_notifications_enabled
+
+    db_setting.last_updated_by = current_user.id
+    db_setting.system_configuration_version += 1
+
+    # Audit log
+    changed_fields = [k for k, v in data.model_dump(exclude_none=True).items()]
+    audit = AuditLog(
+        user_id=current_user.id,
+        username=current_user.username,
+        action="UPDATE_NOTIFICATION_SETTINGS",
+        resource_type="admin_setting",
+        resource_id=str(db_setting.id) if db_setting.id else None,
+        description=f"Notification settings updated by {current_user.username}: {', '.join(changed_fields)}",
+    )
+    db.add(audit)
+
+    await db.commit()
+    await db.refresh(db_setting)
+
+    logger.info(f"Notification settings updated by {current_user.username}: {changed_fields}")
+
+    return NotificationSettingsResponse(
+        emergency_contact_number=db_setting.emergency_contact_number,
+        emergency_notifications_enabled=db_setting.emergency_notifications_enabled,
+        hospital_notifications_enabled=db_setting.hospital_notifications_enabled,
+        updated_at=db_setting.last_updated_timestamp,
+    )
+
+
+@router.post("/notification-settings/test", response_model=TestNotificationResponse)
+async def send_test_notification(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_admin_user),
+):
+    """
+    Send a test SMS notification to the configured emergency contact number.
+    Requires admin role.
+    - Returns error if notifications are OFF.
+    - Returns error if no number is configured.
+    - Sends a clearly-labelled TEST message.
+    """
+    from app.models.admin_setting import AdminSetting
+    from app.models.audit_log import AuditLog
+    from app.services.notification_providers import NotificationProviderFactory
+
+    res = await db.execute(select(AdminSetting).order_by(AdminSetting.created_at.desc()).limit(1))
+    db_setting = res.scalar_one_or_none()
+
+    # Guard: notifications OFF
+    if not db_setting or not db_setting.emergency_notifications_enabled:
+        return TestNotificationResponse(
+            sent=False,
+            message="Emergency notifications are currently OFF. Enable them before sending a test.",
+            timestamp=datetime.utcnow(),
+        )
+
+    # Guard: no number configured
+    contact_number = db_setting.emergency_contact_number
+    if not contact_number:
+        return TestNotificationResponse(
+            sent=False,
+            message="No emergency contact number configured. Please add one and save first.",
+            timestamp=datetime.utcnow(),
+        )
+
+    # Build clearly-labelled test message
+    test_message = (
+        f"[SafeWay TEST ALERT] This is a TEST notification from the SafeWay Accident Detection System.\n"
+        f"No real accident has occurred. Sent by: {current_user.username}\n"
+        f"Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+        f"If you received this in error, contact your system administrator."
+    )
+
+    provider = NotificationProviderFactory.get_provider(channel="sms")
+
+    try:
+        result = await provider.send_sms(to_phone=contact_number, message=test_message)
+
+        # Audit log
+        audit = AuditLog(
+            user_id=current_user.id,
+            username=current_user.username,
+            action="SEND_TEST_NOTIFICATION",
+            resource_type="notification",
+            description=(
+                f"Test notification sent to {contact_number} by {current_user.username}. "
+                f"Provider: {result.provider_name}. Success: {result.success}"
+            ),
+        )
+        db.add(audit)
+        await db.commit()
+
+        logger.info(f"Test notification sent to {contact_number} by {current_user.username}. Success: {result.success}")
+
+        if result.success:
+            return TestNotificationResponse(
+                sent=True,
+                message=f"Test notification sent successfully to {contact_number}.",
+                recipient=contact_number,
+                provider=result.provider_name,
+                timestamp=datetime.utcnow(),
+            )
+        else:
+            return TestNotificationResponse(
+                sent=False,
+                message=f"Test notification failed: {result.error_message}",
+                recipient=contact_number,
+                provider=result.provider_name,
+                timestamp=datetime.utcnow(),
+            )
+
+    except Exception as e:
+        logger.error(f"Test notification exception: {str(e)}")
+        return TestNotificationResponse(
+            sent=False,
+            message=f"Test notification failed due to provider error: {str(e)}",
+            recipient=contact_number,
+            timestamp=datetime.utcnow(),
+        )
+

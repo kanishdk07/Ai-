@@ -100,3 +100,40 @@ class EmergencyStopResponse(BaseModel):
     incidents_affected: List[UUID]
     timestamp: datetime
     message: str
+
+
+# ─── Emergency Contact Notification Settings (NEW) ────────────────────────────
+
+class NotificationSettingsUpdate(BaseModel):
+    """Schema for updating emergency contact notification settings"""
+    emergency_contact_number: Optional[str] = Field(
+        None,
+        description="Phone number in E.164 format, e.g. +919876543210",
+        max_length=20,
+    )
+    emergency_notifications_enabled: Optional[bool] = Field(
+        None,
+        description="Enable/disable emergency SMS notifications to the contact number",
+    )
+    hospital_notifications_enabled: Optional[bool] = Field(
+        None,
+        description="Enable/disable hospital notifications (informational; feature is off by default)",
+    )
+
+
+class NotificationSettingsResponse(BaseModel):
+    """Schema for notification settings response"""
+    emergency_contact_number: Optional[str] = None
+    emergency_notifications_enabled: bool
+    hospital_notifications_enabled: bool
+    updated_at: datetime
+
+
+class TestNotificationResponse(BaseModel):
+    """Schema for test notification response"""
+    sent: bool
+    message: str
+    recipient: Optional[str] = None
+    provider: Optional[str] = None
+    timestamp: datetime
+

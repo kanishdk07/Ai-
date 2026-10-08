@@ -4,6 +4,7 @@ import { SystemSettingsForm } from '../components/admin/SystemSettingsForm';
 import { MaintenanceControl } from '../components/admin/MaintenanceControl';
 import { SystemHealthCard } from '../components/admin/SystemHealthCard';
 import { AuditLogViewer } from '../components/admin/AuditLogViewer';
+import { NotificationSettingsPanel } from '../components/admin/NotificationSettingsPanel';
 import { Sliders, ShieldAlert, Lock } from 'lucide-react';
 
 export const AdminSettingsPage: React.FC = () => {
@@ -40,6 +41,7 @@ export const AdminSettingsPage: React.FC = () => {
       <div className="grid grid-cols-1 gap-6">
         <SystemHealthCard />
         <MaintenanceControl />
+        <NotificationSettingsPanel />
         <SystemSettingsForm />
         <AuditLogViewer />
       </div>
