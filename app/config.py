@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     SMS_ACCOUNT_SID: Optional[str] = None
     SMS_AUTH_TOKEN: Optional[str] = None
     SMS_FROM_NUMBER: Optional[str] = None
+    FAST2SMS_API_KEY: Optional[str] = None
 
     # Firebase Cloud Messaging
     FCM_ENABLED: bool = False

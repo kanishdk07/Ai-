@@ -165,9 +165,13 @@ class TwilioSMSProvider(BaseNotificationProvider):
         message: str,
         metadata: Optional[Dict[str, Any]] = None
     ) -> NotificationDeliveryResult:
-        if settings.TEST_MODE or not self.account_sid or not self.auth_token:
-            logger.info(f"[TWILIO TEST MODE] Simulating SMS to {to_phone}")
-            return await MockNotificationProvider().send_sms(to_phone, message, metadata)
+        if not self.account_sid or not self.auth_token or not self.from_number:
+            logger.error("Twilio SMS credentials missing (SMS_ACCOUNT_SID, SMS_AUTH_TOKEN, SMS_FROM_NUMBER)")
+            return NotificationDeliveryResult(
+                success=False,
+                provider_name=self.provider_name,
+                error_message="Twilio configuration error: Missing SMS_ACCOUNT_SID, SMS_AUTH_TOKEN, or SMS_FROM_NUMBER in backend environment variables."
+            )
 
         url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}/Messages.json"
         data = {
@@ -206,11 +210,87 @@ class TwilioSMSProvider(BaseNotificationProvider):
             return NotificationDeliveryResult(
                 success=False,
                 provider_name=self.provider_name,
-                error_message=str(e)
+                error_message=f"Twilio HTTP exception: {str(e)}"
             )
 
     async def send_email(self, to_email: str, subject: str, body_text: str, body_html: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
-        # Twilio SMS provider delegates email to SendGrid or Mock
+        return await MockNotificationProvider().send_email(to_email, subject, body_text, body_html, metadata)
+
+    async def send_push(self, device_token: str, title: str, body: str, data: Optional[Dict[str, Any]] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
+        return await MockNotificationProvider().send_push(device_token, title, body, data, metadata)
+
+
+class Fast2SMSProvider(BaseNotificationProvider):
+    """Fast2SMS API Provider Integration for Indian Regional SMS Delivery"""
+
+    def __init__(self):
+        self.api_key = settings.FAST2SMS_API_KEY
+
+    @property
+    def provider_name(self) -> str:
+        return "fast2sms"
+
+    async def send_sms(
+        self,
+        to_phone: str,
+        message: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> NotificationDeliveryResult:
+        if not self.api_key:
+            logger.error("Fast2SMS API key missing (FAST2SMS_API_KEY)")
+            return NotificationDeliveryResult(
+                success=False,
+                provider_name=self.provider_name,
+                error_message="Fast2SMS configuration error: Missing FAST2SMS_API_KEY in backend environment variables."
+            )
+
+        clean_numbers = "".join(filter(str.isdigit, to_phone))
+        if len(clean_numbers) > 10 and clean_numbers.startswith("91"):
+            clean_numbers = clean_numbers[2:]
+
+        url = "https://www.fast2sms.com/dev/bulkV2"
+        headers = {
+            "authorization": self.api_key,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "route": "q",
+            "message": message,
+            "language": "english",
+            "flash": 0,
+            "numbers": clean_numbers
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+
+            res_json = response.json()
+            if response.status_code == 200 and res_json.get("return") is True:
+                msg_ids = res_json.get("request_id") or (res_json.get("message", ["FAST2SMS-SENT"])[0] if isinstance(res_json.get("message"), list) else "FAST2SMS-SENT")
+                return NotificationDeliveryResult(
+                    success=True,
+                    provider_name=self.provider_name,
+                    provider_message_id=str(msg_ids),
+                    provider_response=res_json,
+                )
+            else:
+                err = res_json.get("message", response.text)
+                return NotificationDeliveryResult(
+                    success=False,
+                    provider_name=self.provider_name,
+                    provider_response=res_json,
+                    error_message=f"Fast2SMS API error ({response.status_code}): {err}"
+                )
+        except Exception as e:
+            logger.error(f"Fast2SMS request exception: {str(e)}")
+            return NotificationDeliveryResult(
+                success=False,
+                provider_name=self.provider_name,
+                error_message=f"Fast2SMS HTTP exception: {str(e)}"
+            )
+
+    async def send_email(self, to_email: str, subject: str, body_text: str, body_html: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
         return await MockNotificationProvider().send_email(to_email, subject, body_text, body_html, metadata)
 
     async def send_push(self, device_token: str, title: str, body: str, data: Optional[Dict[str, Any]] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
@@ -367,23 +447,32 @@ class NotificationProviderFactory:
         test_mode: Optional[bool] = None
     ) -> BaseNotificationProvider:
         """
-        Get provider instance for requested notification channel
+        Get provider instance for requested notification channel.
+        Explicitly respects SMS_PROVIDER setting ('twilio', 'fast2sms', 'mock').
         """
-        is_test = settings.TEST_MODE if test_mode is None else test_mode
-
-        if is_test:
-            return MockNotificationProvider()
-
         channel_lower = (channel or "sms").lower()
 
         if channel_lower == "sms":
-            if settings.SMS_PROVIDER == "twilio" and settings.SMS_ACCOUNT_SID:
+            provider_setting = (settings.SMS_PROVIDER or "twilio").lower()
+
+            if provider_setting == "twilio":
                 return TwilioSMSProvider()
-            return MockNotificationProvider()
+            elif provider_setting in ["fast2sms", "fastsms"]:
+                return Fast2SMSProvider()
+            elif provider_setting == "mock":
+                return MockNotificationProvider()
+
+            # If TEST_MODE is explicitly enabled and provider is unconfigured, return mock
+            if settings.TEST_MODE and not settings.SMS_ACCOUNT_SID and not settings.FAST2SMS_API_KEY:
+                return MockNotificationProvider()
+
+            return TwilioSMSProvider()
+
         elif channel_lower == "push":
             if settings.FCM_ENABLED and settings.FCM_SERVER_KEY:
                 return FCMNotificationProvider()
             return MockNotificationProvider()
+
         elif channel_lower == "email":
             if settings.SENDGRID_ENABLED and settings.SENDGRID_API_KEY:
                 return SendGridEmailProvider()

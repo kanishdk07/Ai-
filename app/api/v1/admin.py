@@ -546,9 +546,14 @@ async def send_test_notification(
         logger.info(f"Test notification sent to {contact_number} by {current_user.username}. Success: {result.success}")
 
         if result.success:
+            if result.provider_name == "mock":
+                msg_text = f"Test simulated — no SMS sent (System running in Mock Mode). Target: {contact_number}"
+            else:
+                msg_text = f"Real SMS accepted by {result.provider_name.upper()} (ID: {result.provider_message_id}) and sent to {contact_number}."
+
             return TestNotificationResponse(
                 sent=True,
-                message=f"Test notification sent successfully to {contact_number}.",
+                message=msg_text,
                 recipient=contact_number,
                 provider=result.provider_name,
                 timestamp=datetime.utcnow(),
@@ -556,7 +561,7 @@ async def send_test_notification(
         else:
             return TestNotificationResponse(
                 sent=False,
-                message=f"Test notification failed: {result.error_message}",
+                message=f"SMS delivery failed via {result.provider_name.upper()}: {result.error_message}",
                 recipient=contact_number,
                 provider=result.provider_name,
                 timestamp=datetime.utcnow(),
