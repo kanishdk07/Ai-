@@ -1,5 +1,7 @@
 # Environment variables / Secrets
 .env
+.env.local
+.env.*.local
 *.env
 !.env.example
 
@@ -9,23 +11,84 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
 venv/
 ENV/
+env/
+.venv
 env.bak/
 venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
 # Logs
 logs/
 *.log
 
-# Unit test / coverage
-.pytest_cache/
-.coverage
-htmlcov/
+# Database
+*.db
+*.sqlite
+*.sqlite3
 
-# IDE / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+# Testing & Coverage
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.hypothesis/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Uploads & Temporary
+uploads/
+temp/
+
+# Documentation Build
+docs/_build/
+
+# Alembic
+alembic/versions/*.pyc
+
+# AI Model Weights & Storage
+*.pt
+*.onnx
+*.engine
+storage/
+evidence/
+
+# Backup files
+*.bak
+*.backup
+
+# Frontend & Tools
+frontend/node_modules/
+frontend/dist/
+.tools/
