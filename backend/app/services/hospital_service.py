@@ -13,6 +13,7 @@ from geoalchemy2 import Geography
 from app.models import Hospital
 from app.schemas.hospital import HospitalCreate, HospitalUpdate
 from app.config import settings
+from app.services.google_maps_service import GoogleMapsService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -159,9 +160,29 @@ class HospitalService:
 
         nearby_hospitals = []
         for hospital, distance in rows:
+            directions_url = GoogleMapsService.get_directions_url(
+                origin_lat=latitude,
+                origin_lng=longitude,
+                destination_lat=hospital.latitude,
+                destination_lng=hospital.longitude,
+            )
+            embed_url = GoogleMapsService.get_embed_map_url(
+                latitude=hospital.latitude,
+                longitude=hospital.longitude,
+            )
+            static_map_url = GoogleMapsService.get_static_map_url(
+                latitude=hospital.latitude,
+                longitude=hospital.longitude,
+            )
+
             hospital_dict = {
                 **hospital.__dict__,
-                'distance_km': round(distance, 2)
+                'distance_km': round(distance, 2),
+                'google_maps_directions_url': directions_url,
+                'google_maps_embed_url': embed_url,
+                'google_maps_static_map_url': static_map_url,
+                'road_distance_km': None,
+                'road_duration_minutes': None,
             }
             # Remove SQLAlchemy internal state
             hospital_dict.pop('_sa_instance_state', None)

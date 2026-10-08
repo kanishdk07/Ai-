@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     # Webhook
     WEBHOOK_VERIFICATION_TOKEN: Optional[str] = None
 
+    # Google Maps Integration
+    GOOGLE_MAPS_API_KEY: Optional[str] = None
+    GOOGLE_MAPS_ENABLED: bool = True
+
     # Admin
     DEFAULT_ADMIN_EMAIL: str = "admin@example.com"
     DEFAULT_ADMIN_PASSWORD: str = "ChangeThisPassword123!"

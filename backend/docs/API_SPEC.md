@@ -263,6 +263,58 @@ Request:
 
 ---
 
+## Google Maps
+
+### Get Maps Configuration
+**GET** `/api/v1/maps/config`
+
+Response:
+```json
+{
+  "enabled": true,
+  "api_key_configured": true,
+  "default_search_radius_km": 50.0
+}
+```
+
+### Reverse Geocode Coordinates
+**GET** `/api/v1/maps/geocode?latitude=28.7041&longitude=77.1025`
+
+Response:
+```json
+{
+  "formatted_address": "NH-48, Near Sector 14, Gurugram, Haryana 122001",
+  "place_id": "ChIJ..."
+}
+```
+
+### Calculate Driving Distance & Time
+**GET** `/api/v1/maps/distance?origin_latitude=28.7041&origin_longitude=77.1025&destination_latitude=28.7141&destination_longitude=77.1125`
+
+Response:
+```json
+{
+  "distance_km": 3.2,
+  "distance_text": "3.2 km",
+  "duration_minutes": 7.5,
+  "duration_text": "8 mins"
+}
+```
+
+### Get Directions & Map URLs
+**GET** `/api/v1/maps/directions-url?origin_latitude=28.7041&origin_longitude=77.1025&destination_latitude=28.7141&destination_longitude=77.1125`
+
+Response:
+```json
+{
+  "directions_url": "https://www.google.com/maps/dir/?api=1&origin=28.7041,77.1025&destination=28.7141,77.1125&travelmode=driving",
+  "embed_url": "https://www.google.com/maps/embed/v1/place?key=...&q=28.7141,77.1125&zoom=15",
+  "static_map_url": "https://maps.googleapis.com/maps/api/staticmap?center=28.7141,77.1125&zoom=15&size=600x400&key=..."
+}
+```
+
+---
+
 ## Admin Controls
 
 ### Update System Settings

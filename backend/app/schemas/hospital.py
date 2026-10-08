@@ -87,6 +87,11 @@ class HospitalResponse(HospitalBase):
 class NearbyHospitalResponse(HospitalResponse):
     """Schema for nearby hospital with distance"""
     distance_km: float = Field(..., description="Distance from incident location in kilometers")
+    google_maps_directions_url: Optional[str] = Field(None, description="Google Maps navigation directions URL")
+    google_maps_embed_url: Optional[str] = Field(None, description="Google Maps embed URL")
+    google_maps_static_map_url: Optional[str] = Field(None, description="Google Maps static map image URL")
+    road_distance_km: Optional[float] = Field(None, description="Driving road distance in km if calculated via Google Maps")
+    road_duration_minutes: Optional[float] = Field(None, description="Driving duration in minutes if calculated via Google Maps")
 
 
 class HospitalListResponse(BaseModel):

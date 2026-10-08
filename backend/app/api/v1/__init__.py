@@ -2,7 +2,7 @@
 API v1 Package
 """
 from fastapi import APIRouter
-from app.api.v1 import auth, cameras, incidents, hospitals, notifications, admin, websocket
+from app.api.v1 import auth, cameras, incidents, hospitals, notifications, admin, websocket, maps
 
 api_router = APIRouter()
 
@@ -13,5 +13,6 @@ api_router.include_router(incidents.router, prefix="/incidents", tags=["Incident
 api_router.include_router(hospitals.router, prefix="/hospitals", tags=["Hospitals"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
 api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])
+api_router.include_router(maps.router, prefix="/maps", tags=["Google Maps"])
 
 __all__ = ["api_router"]
