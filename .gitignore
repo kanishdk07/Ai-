@@ -87,3 +87,9 @@ evidence/
 *.bak
 *.backup
 
+# Frontend & Tools
+frontend/node_modules/
+frontend/dist/
+.tools/
+
+
