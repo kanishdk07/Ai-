@@ -6,12 +6,15 @@ Defines setup, thresholds, model paths, camera settings, and backend integration
 import os
 from pathlib import Path
 from typing import List, Dict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # Base Directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+
 class AIConfig(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     # Model Configurations
     YOLO_MODEL_PATH: str = Field(
         default=os.getenv("YOLO_MODEL_PATH", "yolo11n.pt"),
@@ -32,6 +35,12 @@ class AIConfig(BaseModel):
     FRAME_STRIDE: int = Field(
         default=int(os.getenv("FRAME_STRIDE", "1")),
         description="Process every Nth frame to save compute"
+    )
+
+    # Tracker Settings
+    TRACKER_TYPE: str = Field(
+        default=os.getenv("TRACKER_TYPE", "bytetrack"),
+        description="Tracker type: bytetrack or iou"
     )
 
     # Vehicle COCO Class IDs
@@ -66,6 +75,26 @@ class AIConfig(BaseModel):
         default=8.0,
         description="Cooldown period in seconds to prevent duplicate event submissions"
     )
+
+    # Risk Classification Thresholds
+    RISK_HIGH_THRESHOLD: float = Field(default=0.75)
+    RISK_MEDIUM_THRESHOLD: float = Field(default=0.45)
+    RISK_LOW_THRESHOLD: float = Field(default=0.25)
+
+    # Location Parameters
+    MAX_LOCATION_AGE_SECONDS: float = Field(
+        default=60.0,
+        description="Maximum age in seconds for live mobile GPS coordinates"
+    )
+    REQUIRE_VERIFIED_LOCATION: bool = Field(default=False)
+
+    # Uploaded Video Parameters
+    MAX_UPLOAD_SIZE_MB: int = Field(default=100)
+    TEMP_UPLOAD_DIR: Path = Field(default=BASE_DIR / "storage" / "temp_uploads")
+
+    # Camera Stream Reconnect Settings
+    RECONNECT_ENABLED: bool = Field(default=True)
+    RECONNECT_ATTEMPTS: int = Field(default=5)
 
     # Evidence Capture & Storage
     STORAGE_DIR: Path = Field(
@@ -102,7 +131,5 @@ class AIConfig(BaseModel):
         description="Inference device: cpu, cuda, or mps"
     )
 
-    class Config:
-        arbitrary_types_allowed = True
 
 settings = AIConfig()

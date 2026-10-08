@@ -3,8 +3,11 @@ Incident Management API Routes
 """
 
 from uuid import UUID
-from typing import Optional, Union
-from fastapi import APIRouter, Depends, Query, HTTPException, status, BackgroundTasks
+from typing import Optional, Union, Dict, Any
+from pathlib import Path
+import os
+import shutil
+from fastapi import APIRouter, Depends, Query, HTTPException, status, BackgroundTasks, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas.incident import (
@@ -393,9 +396,90 @@ async def cancel_incident(
     await WebSocketService.broadcast_incident_resolved({
         "id": str(incident.id),
         "incident_id": incident.incident_id,
-        "status": incident.status.value,
         "cancelled": True,
         "reason": cancel_data.reason,
     })
 
     return incident
+
+
+@router.post("/upload-video", status_code=status.HTTP_200_OK)
+async def upload_video_for_analysis(
+    file: UploadFile = File(...),
+    camera_id: Optional[str] = Form(None),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    location_description: Optional[str] = Form(None),
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """
+    Manual Video Upload & AI Accident Analysis Endpoint (Mode A)
+
+    Processes recorded highway video files through YOLO11 detection, ByteTrack vehicle tracking,
+    temporal movement analysis, and risk classification (HIGH, MEDIUM, LOW, UNCERTAIN).
+
+    Attaches trusted GPS metadata if provided, or marks location_status='unavailable'.
+    """
+    if settings.MAINTENANCE_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="System is in maintenance mode"
+        )
+
+    # Validate file extension
+    allowed_exts = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported video format '{ext}'. Allowed formats: {', '.join(allowed_exts)}"
+        )
+
+    temp_dir = Path(settings.UPLOAD_DIR) / "temp_video_uploads"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = temp_dir / f"upload_{os.urandom(8).hex()}{ext}"
+
+    try:
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # Build location metadata dict if provided
+        loc_meta = None
+        if latitude is not None and longitude is not None:
+            loc_meta = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "location_description": location_description or f"User Provided Location ({latitude:.4f}, {longitude:.4f})",
+                "source": "provided_gps",
+                "location_status": "verified"
+            }
+
+        cam_id = camera_id or "CAM-MANUAL-UPLOAD"
+
+        # Import AI pipeline orchestrator dynamically
+        from ai_module.pipeline import AccidentDetectionPipeline
+        pipeline = AccidentDetectionPipeline(enable_backend_submission=False)
+
+        # Execute video processing and risk analysis
+        result = pipeline.process_video_file(
+            video_path=str(temp_path),
+            camera_id=cam_id,
+            location_metadata=loc_meta,
+            submit_to_backend=False
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error during video upload analysis: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Video analysis failed: {str(e)}"
+        )
+    finally:
+        if temp_path.exists():
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+

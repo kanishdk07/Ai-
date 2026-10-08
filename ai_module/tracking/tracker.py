@@ -1,6 +1,7 @@
 """
-Multi-Object Vehicle Tracker
+Multi-Object Vehicle Tracker (ByteTrack / IoU compatible)
 Provides persistent object tracking across frames using IoU + Centroid Kalman multi-object tracking algorithm.
+Supports ByteTrack two-stage association logic for high-confidence and low-confidence detections.
 """
 
 from dataclasses import dataclass, field
@@ -51,6 +52,26 @@ class TrackedVehicleState:
                     self.speed_history.pop(0)
 
     @property
+    def vehicle_class(self) -> str:
+        return self.class_name
+
+    @property
+    def bounding_box(self) -> Tuple[float, float, float, float]:
+        return self.current_box
+
+    @property
+    def center_x(self) -> float:
+        return (self.current_box[0] + self.current_box[2]) / 2.0
+
+    @property
+    def center_y(self) -> float:
+        return (self.current_box[1] + self.current_box[3]) / 2.0
+
+    @property
+    def timestamp(self) -> Optional[datetime]:
+        return self.positions[-1][2] if self.positions else None
+
+    @property
     def current_speed(self) -> float:
         """Get latest speed in pixels per second."""
         return self.speed_history[-1] if self.speed_history else 0.0
@@ -66,13 +87,19 @@ class TrackedVehicleState:
 
 class MultiObjectVehicleTracker:
     """
-    IoU + Centroid Vehicle Tracker.
+    ByteTrack-compatible Multi-Object Vehicle Tracker.
     Maintains vehicle IDs and computes velocity vectors over time.
     """
 
-    def __init__(self, iou_threshold: float = 0.3, max_disappeared: int = 15):
+    def __init__(
+        self,
+        iou_threshold: float = 0.3,
+        max_disappeared: int = 15,
+        high_conf_thresh: float = 0.45
+    ):
         self.iou_threshold = iou_threshold
         self.max_disappeared = max_disappeared
+        self.high_conf_thresh = high_conf_thresh
         self.next_track_id = 1
         self.tracked_vehicles: Dict[int, TrackedVehicleState] = {}
 
@@ -87,7 +114,6 @@ class MultiObjectVehicleTracker:
         Assigns track_id to each DetectedVehicle.
         """
         if not detected_vehicles:
-            # Mark disappeared
             self._cleanup_disappeared(frame_id)
             return []
 
@@ -108,40 +134,89 @@ class MultiObjectVehicleTracker:
                 self.next_track_id += 1
             return detected_vehicles
 
-        # Match existing tracks with new detections using IoU matrix
+        # ByteTrack two-stage matching:
+        # Stage 1: High-confidence detections
+        high_dets = [v for v in detected_vehicles if v.confidence >= self.high_conf_thresh]
+        low_dets = [v for v in detected_vehicles if v.confidence < self.high_conf_thresh]
+
         track_ids = list(self.tracked_vehicles.keys())
         track_boxes = [self.tracked_vehicles[tid].current_box for tid in track_ids]
-        det_boxes = [veh.box for veh in detected_vehicles]
+        high_det_boxes = [v.box for v in high_dets]
 
-        iou_matrix = self._compute_iou_matrix(track_boxes, det_boxes)
+        iou_matrix = self._compute_iou_matrix(track_boxes, high_det_boxes)
 
-        matched_det_indices = set()
+        matched_high_det_indices = set()
         matched_track_indices = set()
 
         if iou_matrix.size > 0:
-            # Greedy matching by max IoU
             while True:
                 max_iou = np.max(iou_matrix)
                 if max_iou < self.iou_threshold:
                     break
                 t_idx, d_idx = np.unravel_index(np.argmax(iou_matrix), iou_matrix.shape)
-                if t_idx in matched_track_indices or d_idx in matched_det_indices:
+                if t_idx in matched_track_indices or d_idx in matched_high_det_indices:
                     iou_matrix[t_idx, d_idx] = -1.0
                     continue
 
                 tid = track_ids[t_idx]
-                veh = detected_vehicles[d_idx]
+                veh = high_dets[d_idx]
                 veh.track_id = tid
                 self.tracked_vehicles[tid].update(veh.box, veh.confidence, frame_id, timestamp)
 
                 matched_track_indices.add(t_idx)
-                matched_det_indices.add(d_idx)
+                matched_high_det_indices.add(d_idx)
                 iou_matrix[t_idx, :] = -1.0
                 iou_matrix[:, d_idx] = -1.0
 
-        # Unmatched detections get new track IDs
-        for d_idx, veh in enumerate(detected_vehicles):
-            if d_idx not in matched_det_indices:
+        # Stage 2: Low-confidence detections for remaining unmatched tracks
+        unmatched_track_indices = [i for i in range(len(track_ids)) if i not in matched_track_indices]
+        if unmatched_track_indices and low_dets:
+            unmatched_track_boxes = [self.tracked_vehicles[track_ids[i]].current_box for i in unmatched_track_indices]
+            low_det_boxes = [v.box for v in low_dets]
+
+            low_iou_matrix = self._compute_iou_matrix(unmatched_track_boxes, low_det_boxes)
+
+            matched_low_det_indices = set()
+            if low_iou_matrix.size > 0:
+                while True:
+                    max_iou = np.max(low_iou_matrix)
+                    if max_iou < self.iou_threshold:
+                        break
+                    u_t_idx, l_d_idx = np.unravel_index(np.argmax(low_iou_matrix), low_iou_matrix.shape)
+                    if u_t_idx in matched_track_indices or l_d_idx in matched_low_det_indices:
+                        low_iou_matrix[u_t_idx, l_d_idx] = -1.0
+                        continue
+
+                    orig_t_idx = unmatched_track_indices[u_t_idx]
+                    tid = track_ids[orig_t_idx]
+                    veh = low_dets[l_d_idx]
+                    veh.track_id = tid
+                    self.tracked_vehicles[tid].update(veh.box, veh.confidence, frame_id, timestamp)
+
+                    matched_track_indices.add(orig_t_idx)
+                    matched_low_det_indices.add(l_d_idx)
+                    low_iou_matrix[u_t_idx, :] = -1.0
+                    low_iou_matrix[:, l_d_idx] = -1.0
+
+        # Unmatched high-confidence detections get new track IDs
+        for d_idx, veh in enumerate(high_dets):
+            if d_idx not in matched_high_det_indices and veh.track_id is None:
+                veh.track_id = self.next_track_id
+                state = TrackedVehicleState(
+                    track_id=self.next_track_id,
+                    class_id=veh.class_id,
+                    class_name=veh.class_name,
+                    current_box=veh.box,
+                    confidence=veh.confidence,
+                    last_seen_frame=frame_id
+                )
+                state.update(veh.box, veh.confidence, frame_id, timestamp)
+                self.tracked_vehicles[self.next_track_id] = state
+                self.next_track_id += 1
+
+        # Unmatched low-confidence detections that didn't match existing tracks
+        for veh in low_dets:
+            if veh.track_id is None and len(high_dets) == 0:
                 veh.track_id = self.next_track_id
                 state = TrackedVehicleState(
                     track_id=self.next_track_id,

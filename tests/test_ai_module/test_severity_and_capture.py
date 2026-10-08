@@ -1,5 +1,5 @@
 """
-Unit Tests for Severity Classifier and Evidence Capture Service
+Unit Tests for Severity Classifier, Risk Levels (HIGH, MEDIUM, LOW, UNCERTAIN), and Evidence Capture Service
 """
 
 from datetime import datetime, timezone
@@ -11,6 +11,7 @@ from ai_module.detection import DetectedVehicle
 from ai_module.collision import CollisionEvent, CollisionEvidence, CollisionStatus
 from ai_module.severity import SeverityClassifier, SeverityCategory
 from ai_module.capture import EvidenceCaptureService
+from ai_module.pipeline import AccidentDetectionPipeline
 
 
 def test_severity_classification_high():
@@ -47,8 +48,46 @@ def test_severity_classification_high():
 
     res = classifier.classify(event)
     assert res.severity == SeverityCategory.HIGH
+    assert res.risk_level == "HIGH"
     assert res.confidence_score >= 0.70
     assert "Notice" in res.disclaimer
+
+
+def test_severity_classification_uncertain():
+    classifier = SeverityClassifier()
+    now = datetime.now(timezone.utc)
+
+    # Uncertain evidence: low confidence candidate, minor overlap, low evidence confidence score
+    evidence = CollisionEvidence(
+        vehicles_involved=[1],
+        max_iou_overlap=0.05,
+        max_velocity_drop=0.20,
+        min_proximity_px=80.0,
+        post_impact_standstill_frames=0,
+        trajectories_intersect=False,
+        evidence_score=0.20
+    )
+
+    vehicles = [
+        DetectedVehicle(box=(10, 10, 50, 50), confidence=0.4, class_id=2, class_name="car", track_id=1),
+    ]
+
+    event = CollisionEvent(
+        event_id="ACC-TEST-UNCERTAIN",
+        camera_id="CAM-02",
+        created_at=now,
+        status=CollisionStatus.CANDIDATE,
+        confidence_score=0.30,
+        evidence=evidence,
+        vehicles=vehicles,
+        frame_id=5
+    )
+
+    res = classifier.classify(event)
+    assert res.severity == SeverityCategory.UNCERTAIN
+    assert res.risk_level == "UNCERTAIN"
+    assert res.review_required is True
+    assert len(res.reasons) > 0
 
 
 def test_evidence_capture_service(tmp_path):

@@ -1,7 +1,7 @@
 # AI Accident Detection & Emergency Alert Module Specification
 
 ## 1. Overview
-The AI Accident Detection Module is a self-contained, modular computer vision processing engine designed for highway collision monitoring, severity classification, clean evidence capture, and automated reporting to the FastAPI Backend.
+The AI Accident Detection Module is a self-contained, modular computer vision processing engine designed for highway collision monitoring, ByteTrack vehicle tracking, severity risk classification (`HIGH`, `MEDIUM`, `LOW`, `UNCERTAIN`), location resolution, clean evidence capture, manual video upload analysis, and automated reporting to the FastAPI Backend.
 
 ---
 
@@ -19,15 +19,15 @@ ai_module/
 ├── detection/                # Vehicle Detection Pipeline
 │   └── yolo_detector.py      # Ultralytics YOLO11 model wrapper
 ├── tracking/                 # Multi-Object Vehicle Tracking
-│   └── tracker.py            # IoU + Centroid Multi-Object Tracker
+│   └── tracker.py            # ByteTrack two-stage IoU + Centroid Multi-Object Tracker
 ├── collision/                # Collision Physics & Temporal Event Detector
 │   └── analyzer.py           # Multi-frame velocity drops, overlap, and temporal confirmation
 ├── severity/                 # Severity Classification Engine
-│   └── classifier.py         # 3-tier severity classifier (High, Medium, Low) & review flag
+│   └── classifier.py         # 4-tier risk level classifier (HIGH, MEDIUM, LOW, UNCERTAIN) & review flag
 ├── capture/                  # Evidence Capture & Visualization
 │   └── capture_service.py    # Pristine clean evidence saver + annotated preview drawer
 ├── location/                 # Spatial Location & GPS Resolver
-│   └── location_service.py   # Fixed camera GPS registry & mobile GPS override
+│   └── location_service.py   # Trusted location priority hierarchy (mobile GPS, camera registry, fallback)
 ├── integration/              # FastAPI Backend Integration
 │   └── backend_client.py     # HTTP client with retry, idempotency & offline buffer
 └── evaluation/               # Benchmarking & Performance Monitoring
@@ -58,6 +58,18 @@ push_frame(
 ) -> bool
 ```
 
+#### Manual Video Upload Processing API
+Manual recorded video files are processed via `pipeline.process_video_file()`:
+```python
+process_video_file(
+    video_path: str,
+    camera_id: str = "CAM-FILE-UPLOAD",
+    location_metadata: Optional[Dict[str, Any]] = None,
+    sample_stride: int = 1,
+    submit_to_backend: bool = True
+) -> Dict[str, Any]
+```
+
 ---
 
 ### 3.2 Vehicle Detection (`YOLO11Detector`)
@@ -70,7 +82,13 @@ push_frame(
 
 ---
 
-### 3.3 Collision Analysis (`CollisionAnalyzer`)
+### 3.3 ByteTrack Vehicle Tracking (`MultiObjectVehicleTracker`)
+- Uses ByteTrack two-stage association logic matching high-confidence detections first and low-confidence detections second to recover occluded objects.
+- Maintains vehicle trajectory states: `track_id`, `vehicle_class`, `bounding_box`, `center_x`, `center_y`, `timestamp`, and velocity history.
+
+---
+
+### 3.4 Collision Analysis (`CollisionAnalyzer`)
 Calculates physics metrics over sliding multi-frame window:
 - **Velocity Drop:** Relative drop in speed \((v_{past} - v_{current}) / v_{past}\) > threshold.
 - **Bounding Box Overlap:** Bounding box Intersection over Min Area (\(IoU_{min}\)) > threshold.
@@ -84,36 +102,47 @@ Calculates physics metrics over sliding multi-frame window:
 
 ---
 
-### 3.4 Severity Estimation (`SeverityClassifier`)
-Three severity categories with review-required flags:
+### 3.5 Risk Classification (`SeverityClassifier`)
+Four risk categories with review-required flags:
 - **`HIGH`**: Severe overlap (\(IoU > 0.40\)), severe deceleration (\(> 70\%\)), or multi-vehicle crash (\(\ge 3\)).
 - **`MEDIUM`**: Moderate collision metrics without meeting High threshold.
 - **`LOW`**: Low-impact event or minor disruption.
+- **`UNCERTAIN`**: Assigned when visual evidence is ambiguous, collision candidate confidence is low (< 0.40), or occlusion prevents confirmation. Automatically sets `review_required = True`.
 - **`review_required` Flag:** Set to `True` if confidence \(< 0.60\) or visual evidence is ambiguous.
 
 ---
 
-### 3.5 Evidence Preservation (`EvidenceCaptureService`)
-For every confirmed accident:
-1. **Clean Image:** Pristine original video frame stored without overlays (e.g. `ACC-20261007-0001_clean.jpg`).
-2. **Annotated Image:** Visual dashboard preview rendered with vehicle bounding boxes, track IDs, confidence scores, and severity badge overlay (e.g. `ACC-20261007-0001_annotated.jpg`).
+### 3.6 Location Priority Resolver (`LocationRegistry`)
+Resolves location adhering strictly to priority:
+1. Explicit trusted GPS provided with upload (`source = "provided_gps"`, `location_status = "verified"`).
+2. User-provided location (`source = "user_provided"`, `location_status = "verified"`).
+3. Registered camera coordinates (`source = "registered_camera"`, `location_status = "registered"`).
+4. Live mobile GPS (`source = "mobile_gps"`, checking max location age).
+5. Unavailable fallback (`latitude = None`, `longitude = None`, `location_status = "unavailable"`). *Never invents coordinates from visual frames.*
 
 ---
 
-### 3.6 Backend Integration Client (`BackendIntegrationClient`)
+### 3.7 Evidence Preservation (`EvidenceCaptureService`)
+For every confirmed accident:
+1. **Clean Image:** Pristine original video frame stored without overlays (e.g. `ACC-20261008-0001_clean.jpg`).
+2. **Annotated Image:** Visual dashboard preview rendered with vehicle bounding boxes, track IDs, confidence scores, and risk badge overlay (e.g. `ACC-20261008-0001_annotated.jpg`).
+
+---
+
+### 3.8 Backend Integration Client (`BackendIntegrationClient`)
 Submits `POST /api/v1/incidents` matching the FastAPI Pydantic schema `IncidentCreate`:
 ```json
 {
-  "incident_id": "ACC-20261007231500-0001",
+  "incident_id": "ACC-20261008191500-0001",
   "camera_external_id": "CAM-SYS-01",
-  "detected_at": "2026-10-07T23:15:00+00:00",
+  "detected_at": "2026-10-08T19:15:00+00:00",
   "accident_detected": true,
-  "severity": "high",
+  "severity": "HIGH",
   "confidence_score": 0.88,
-  "latitude": 37.7749,
-  "longitude": -122.4194,
-  "location_description": "Highway 101 North - KM 42",
-  "accident_image_url": "/static/evidence/ACC-20261007231500-0001_clean.jpg",
+  "latitude": 13.0827,
+  "longitude": 80.2707,
+  "location_description": "Registered Camera [CAM-SYS-01]",
+  "accident_image_url": "/static/evidence/ACC-20261008191500-0001_clean.jpg",
   "vehicle_count": 2,
   "vehicle_info": {
     "vehicle_count": 2,
@@ -122,13 +151,13 @@ Submits `POST /api/v1/incidents` matching the FastAPI Pydantic schema `IncidentC
   "ai_event_data": {
     "review_required": false,
     "severity_reasons": ["Significant vehicle bounding box overlap", "Severe abrupt deceleration"],
-    "annotated_image_url": "/static/evidence/ACC-20261007231500-0001_annotated.jpg"
+    "annotated_image_url": "/static/evidence/ACC-20261008191500-0001_annotated.jpg"
   },
-  "idempotency_key": "IDEM-CAM-SYS-01-ACC-20261007231500-0001"
+  "idempotency_key": "IDEM-CAM-SYS-01-ACC-20261008191500-0001"
 }
 ```
 
 ---
 
 ## 4. Safety & Compliance Disclaimer
-> **IMPORTANT:** AI severity classification is strictly based on visual motion dynamics and bounding box trajectories. The system **does NOT estimate actual human injuries, fatalities, or medical condition** from camera footage.
+> **IMPORTANT:** AI risk classification is strictly based on visual motion dynamics and bounding box trajectories. The system **does NOT estimate actual human injuries, fatalities, or medical condition** from camera footage.

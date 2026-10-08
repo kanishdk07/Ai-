@@ -73,7 +73,7 @@ class CameraInputManager:
         self.register_stream(stream)
         return stream
 
-    def start_all() -> Dict[str, bool]:
+    def start_all(self) -> Dict[str, bool]:
         """Start all registered camera streams."""
         results = {}
         for cam_id, stream in self.streams.items():
@@ -102,7 +102,7 @@ class CameraInputManager:
         if camera_id in self.streams:
             self.streams[camera_id].stop()
 
-    def stop_all() -> None:
+    def stop_all(self) -> None:
         """Stop all registered camera streams."""
         for cam_id, stream in list(self.streams.items()):
             stream.stop()

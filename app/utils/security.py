@@ -6,6 +6,16 @@ Handles password hashing, JWT tokens, and authentication
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 from jose import JWTError, jwt
+import bcrypt
+
+# Patch passlib/bcrypt compatibility issue on Python 3.13 / bcrypt >= 4.1.0
+_orig_hashpw = bcrypt.hashpw
+def _safe_hashpw(password, salt):
+    if isinstance(password, (str, bytes)) and len(password) > 72:
+        password = password[:72]
+    return _orig_hashpw(password, salt)
+bcrypt.hashpw = _safe_hashpw
+
 from passlib.context import CryptContext
 from app.config import settings
 import secrets
@@ -25,7 +35,8 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    safe_pw = plain_password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+    return pwd_context.verify(safe_pw, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
@@ -38,7 +49,8 @@ def get_password_hash(password: str) -> str:
     Returns:
         Hashed password
     """
-    return pwd_context.hash(password)
+    safe_pw = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
+    return pwd_context.hash(safe_pw)
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:

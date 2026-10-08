@@ -1,5 +1,5 @@
 """
-Unit Tests for Location Registry and Backend Integration Client
+Unit Tests for Location Registry, Priority Hierarchy, and Backend Integration Client
 """
 
 from datetime import datetime, timezone
@@ -22,6 +22,7 @@ def test_location_registry_registered_and_mobile():
     loc1 = reg.resolve_location("CAM-SYS-10")
     assert loc1.is_verified is True
     assert loc1.latitude == 37.7749
+    assert loc1.location_status == "registered"
     assert loc1.source == "registered_camera"
 
     # Mobile GPS override
@@ -29,13 +30,19 @@ def test_location_registry_registered_and_mobile():
     loc2 = reg.resolve_location("CAM-SYS-10", override_gps=mobile_gps)
     assert loc2.is_verified is True
     assert loc2.latitude == 34.0522
+    assert loc2.location_status == "verified"
     assert loc2.source == "mobile_gps"
 
-    # Missing location fallback
-    loc3 = reg.resolve_location("CAM-UNKNOWN")
+    # Missing location fallback (for uploaded video without GPS)
+    loc3 = reg.resolve_location("CAM-UNKNOWN", source_type="uploaded_video")
     assert loc3.is_verified is False
     assert loc3.latitude is None
-    assert loc3.source == "unverified"
+    assert loc3.longitude is None
+    assert loc3.location_status == "unavailable"
+    assert loc3.source == "unavailable"
+    d = loc3.to_dict()
+    assert d["location_status"] == "unavailable"
+    assert d["latitude"] is None
 
 
 def test_backend_client_offline_buffering(tmp_path):
