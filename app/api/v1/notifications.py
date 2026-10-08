@@ -2,6 +2,7 @@
 Notification Management API Routes
 """
 
+from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,23 +24,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+from app.dependencies import get_optional_user
+
 @router.post("/manual", response_model=NotificationResponse, status_code=status.HTTP_201_CREATED)
 async def send_manual_notification(
     notification_data: ManualNotificationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_operator_or_admin),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
-    Send manual notification
-
-    Requires operator or admin role.
-
-    Can send to:
-    - Registered hospital (provide hospital_id)
-    - Manual phone number (provide recipient_phone)
+    Send manual SMS / Emergency notification (Requirements 4, 5, 6)
     """
+    user_id = current_user.id if current_user else None
     notification = await NotificationService.create_manual_notification(
-        db, notification_data, current_user.id
+        db, notification_data, user_id
     )
 
     # Broadcast notification sent

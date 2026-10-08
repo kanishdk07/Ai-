@@ -32,8 +32,12 @@ export const SystemCameraStream: React.FC<SystemCameraStreamProps> = ({ onCaptur
   const [videoObjectUrl, setVideoObjectUrl] = useState<string | null>(null);
   const [isAnalyzingVideo, setIsAnalyzingVideo] = useState<boolean>(false);
   const [uploadAnalysisResult, setUploadAnalysisResult] = useState<any | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [techDetails, setTechDetails] = useState<string | null>(null);
+  // SMS Notification State
+  const [recipientPhone, setRecipientPhone] = useState<string>('+919876543210');
+  const [customLocation, setCustomLocation] = useState<string>('');
+  const [isSendingSMS, setIsSendingSMS] = useState<boolean>(false);
+  const [smsResult, setSmsResult] = useState<any | null>(null);
+  const [smsError, setSmsError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Helper: Enumerate camera devices safely
@@ -343,6 +347,40 @@ export const SystemCameraStream: React.FC<SystemCameraStreamProps> = ({ onCaptur
     setIsAnalyzingVideo(false);
   };
 
+  const handleSendSMS = async () => {
+    setIsSendingSMS(true);
+    setSmsError(null);
+
+    try {
+      const incId = uploadAnalysisResult?.event_id || systemCam?.id || `ACC-${Date.now().toString().slice(-6)}`;
+      const locDesc = customLocation || uploadAnalysisResult?.location?.location_description || (inputMode === 'upload' ? 'Location not provided' : 'Camera location unavailable');
+      const lat = uploadAnalysisResult?.location?.latitude || systemCam?.latitude;
+      const lon = uploadAnalysisResult?.location?.longitude || systemCam?.longitude;
+
+      const notif = await notificationApi.sendManualNotification({
+        incident_id: incId,
+        recipient_phone: recipientPhone,
+        incident_source: inputMode === 'upload' ? 'uploaded_video' : 'live_camera',
+        location_description: locDesc,
+        latitude: lat,
+        longitude: lon,
+      });
+
+      setSmsResult(notif);
+      setIsSendingSMS(false);
+
+      addToast({
+        type: 'success',
+        title: 'SMS Notification Sent',
+        message: `Emergency alert dispatched to ${recipientPhone} (Status: ${notif.status}).`
+      });
+    } catch (err: any) {
+      setIsSendingSMS(false);
+      console.error('SMS send error:', err);
+      setSmsError(err?.message || 'Failed to dispatch SMS notification');
+    }
+  };
+
   return (
     <div className="p-6 rounded-2xl bg-gray-900/90 border border-gray-800 shadow-2xl backdrop-blur-md">
       {/* Header & Mode Switcher */}
@@ -641,6 +679,83 @@ export const SystemCameraStream: React.FC<SystemCameraStreamProps> = ({ onCaptur
               </ul>
             </div>
           )}
+
+          {/* SMS Notification Dispatch Section */}
+          <div className="pt-3 border-t border-gray-800/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <Send className="w-3.5 h-3.5 text-blue-400" />
+                Dispatch Emergency SMS Alert
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-blue-950/60 text-blue-300 border border-blue-800/50">
+                {smsResult ? (smsResult.status === 'delivered' ? 'Accepted by provider' : smsResult.status) : 'Ready to send'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1">Recipient Mobile Number (E.164)</label>
+                <input
+                  type="text"
+                  value={recipientPhone}
+                  onChange={(e) => setRecipientPhone(e.target.value)}
+                  placeholder="+919876543210"
+                  className="w-full px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-800 text-white font-mono text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] text-gray-400 mb-1">Verified Location / Address (Scenario B)</label>
+                <input
+                  type="text"
+                  value={customLocation}
+                  onChange={(e) => setCustomLocation(e.target.value)}
+                  placeholder={uploadAnalysisResult.location?.location_description || 'Location not provided'}
+                  className="w-full px-3 py-1.5 rounded-lg bg-gray-900 border border-gray-800 text-white text-xs focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <p className="text-[11px] text-gray-500">
+                Sends formatted emergency alert with AI severity ({uploadAnalysisResult.risk_level}) and verified location.
+              </p>
+              <button
+                type="button"
+                onClick={handleSendSMS}
+                disabled={isSendingSMS}
+                className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow-md shadow-blue-600/30 transition flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSendingSMS ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Dispatching...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" />
+                    Send SMS Emergency Alert
+                  </>
+                )}
+              </button>
+            </div>
+
+            {smsError && (
+              <div className="p-2.5 rounded-lg bg-red-950/40 border border-red-800/60 text-xs text-red-300">
+                <span className="font-semibold">SMS Error: </span>{smsError}
+              </div>
+            )}
+
+            {smsResult && (
+              <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60 text-xs text-emerald-300 space-y-1 font-mono text-[11px]">
+                <div className="font-bold flex items-center justify-between">
+                  <span>SMS DISPATCH RECORDED ({smsResult.notification_id})</span>
+                  <span className="text-[10px] text-emerald-400 uppercase">Provider: {smsResult.provider || 'twilio'}</span>
+                </div>
+                <div className="text-gray-300 text-[10px] truncate">{smsResult.message}</div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

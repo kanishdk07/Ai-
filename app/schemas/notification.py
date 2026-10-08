@@ -19,13 +19,17 @@ class NotificationBase(BaseModel):
 
 class ManualNotificationRequest(BaseModel):
     """Schema for manual notification request"""
-    incident_id: UUID = Field(..., description="Incident to notify about")
+    incident_id: str = Field(..., description="Incident ID or UUID to notify about")
     recipient_phone: Optional[str] = Field(None, description="Phone number in international format (e.g., +919876543210)")
     recipient_email: Optional[EmailStr] = None
     recipient_name: Optional[str] = None
-    hospital_id: Optional[UUID] = Field(None, description="Hospital to notify (if not manual)")
+    hospital_id: Optional[str] = Field(None, description="Hospital ID to notify (if not manual)")
     notification_type: NotificationType = NotificationType.SMS
     custom_message: Optional[str] = Field(None, max_length=500, description="Optional custom message")
+    incident_source: Optional[str] = Field("live_camera", description="live_camera or uploaded_video")
+    latitude: Optional[float] = Field(None, description="Verified latitude")
+    longitude: Optional[float] = Field(None, description="Verified longitude")
+    location_description: Optional[str] = Field(None, description="Human readable location description")
 
 
 class NotificationResponse(BaseModel):

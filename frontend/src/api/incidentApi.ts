@@ -174,9 +174,27 @@ export const incidentApi = {
     if (latitude !== undefined) formData.append('latitude', latitude.toString());
     if (longitude !== undefined) formData.append('longitude', longitude.toString());
 
-    const res = await apiClient.post('/incidents/upload-video', formData, {
-      timeout: 300000, // 5 minutes timeout for AI frame processing
+    const token = localStorage.getItem('safeway_access_token');
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch('/api/v1/incidents/upload-video', {
+      method: 'POST',
+      headers,
+      body: formData,
     });
-    return res.data;
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: `HTTP ${response.status} error` }));
+      const err: any = new Error(
+        typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail || errorData)
+      );
+      err.response = { status: response.status, data: errorData };
+      throw err;
+    }
+
+    return await response.json();
   }
 };

@@ -13,6 +13,10 @@ export const notificationApi = {
     hospital_id?: string;
     notification_type?: NotificationType;
     custom_message?: string;
+    incident_source?: 'live_camera' | 'uploaded_video';
+    latitude?: number;
+    longitude?: number;
+    location_description?: string;
   }): Promise<Notification> {
     try {
       const res = await apiClient.post<Notification>('/notifications/manual', data);
