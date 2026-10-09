@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     SMS_AUTH_TOKEN: Optional[str] = None
     SMS_FROM_NUMBER: Optional[str] = None
     FAST2SMS_API_KEY: Optional[str] = None
+    TEXTBELT_API_KEY: Optional[str] = "textbelt"
+    TEXTBEE_API_KEY: Optional[str] = None
+    TEXTBEE_DEVICE_ID: Optional[str] = None
 
     # Firebase Cloud Messaging
     FCM_ENABLED: bool = False

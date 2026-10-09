@@ -174,9 +174,14 @@ class TwilioSMSProvider(BaseNotificationProvider):
             )
 
         url = f"https://api.twilio.com/2010-04-01/Accounts/{self.account_sid}/Messages.json"
+        from_formatted = self.from_number.strip()
+        to_formatted = to_phone.strip()
+        if from_formatted.startswith("whatsapp:") and not to_formatted.startswith("whatsapp:"):
+            to_formatted = f"whatsapp:{to_formatted}"
+
         data = {
-            "To": to_phone,
-            "From": self.from_number,
+            "To": to_formatted,
+            "From": from_formatted,
             "Body": message
         }
 
@@ -438,6 +443,139 @@ class SendGridEmailProvider(BaseNotificationProvider):
         return await MockNotificationProvider().send_push(device_token, title, body, data, metadata)
 
 
+class TextbeltSMSProvider(BaseNotificationProvider):
+    """Textbelt Free/Quota SMS API Provider Integration (1 free SMS per day per IP)"""
+
+    def __init__(self):
+        self.api_key = getattr(settings, "TEXTBELT_API_KEY", None) or "textbelt"
+
+    @property
+    def provider_name(self) -> str:
+        return "textbelt"
+
+    async def send_sms(
+        self,
+        to_phone: str,
+        message: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> NotificationDeliveryResult:
+        url = "https://textbelt.com/text"
+        data = {
+            "phone": to_phone,
+            "message": message,
+            "key": self.api_key
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(url, data=data)
+
+            res_json = response.json()
+            if response.status_code == 200 and res_json.get("success") is True:
+                msg_id = str(res_json.get("textId", f"TEXTBELT-{int(datetime.utcnow().timestamp())}"))
+                return NotificationDeliveryResult(
+                    success=True,
+                    provider_name=self.provider_name,
+                    provider_message_id=msg_id,
+                    provider_response=res_json,
+                )
+            else:
+                err = res_json.get("error", response.text)
+                return NotificationDeliveryResult(
+                    success=False,
+                    provider_name=self.provider_name,
+                    provider_response=res_json,
+                    error_message=f"Textbelt error: {err}"
+                )
+        except Exception as e:
+            logger.error(f"Textbelt SMS request exception: {str(e)}")
+            return NotificationDeliveryResult(
+                success=False,
+                provider_name=self.provider_name,
+                error_message=f"Textbelt HTTP exception: {str(e)}"
+            )
+
+    async def send_email(self, to_email: str, subject: str, body_text: str, body_html: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
+        return await MockNotificationProvider().send_email(to_email, subject, body_text, body_html, metadata)
+
+    async def send_push(self, device_token: str, title: str, body: str, data: Optional[Dict[str, Any]] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
+        return await MockNotificationProvider().send_push(device_token, title, body, data, metadata)
+
+
+class TextBeeSMSProvider(BaseNotificationProvider):
+    """TextBee Free SMS Gateway API Provider Integration"""
+
+    def __init__(self):
+        self.api_key = getattr(settings, "TEXTBEE_API_KEY", None)
+        self.device_id = getattr(settings, "TEXTBEE_DEVICE_ID", None)
+
+    @property
+    def provider_name(self) -> str:
+        return "textbee"
+
+    async def send_sms(
+        self,
+        to_phone: str,
+        message: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> NotificationDeliveryResult:
+        if not self.api_key:
+            logger.error("TextBee API key missing (TEXTBEE_API_KEY)")
+            return NotificationDeliveryResult(
+                success=False,
+                provider_name=self.provider_name,
+                error_message="TextBee configuration error: Missing TEXTBEE_API_KEY in backend environment variables."
+            )
+
+        url = "https://api.textbee.dev/api/v1/gateway/send-sms"
+        if self.device_id:
+            url = f"https://api.textbee.dev/api/v1/gateway/devices/{self.device_id}/send-sms"
+
+        headers = {
+            "x-api-key": self.api_key,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "recipients": [to_phone],
+            "message": message
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+
+            res_json = response.json()
+            if response.status_code in [200, 201] and (res_json.get("success") is True or "data" in res_json or res_json.get("status") == "success"):
+                msg_id = str(res_json.get("data", {}).get("_id", f"TEXTBEE-{int(datetime.utcnow().timestamp())}"))
+                return NotificationDeliveryResult(
+                    success=True,
+                    provider_name=self.provider_name,
+                    provider_message_id=msg_id,
+                    provider_response=res_json,
+                )
+            else:
+                err = res_json.get("message", res_json.get("error", response.text))
+                return NotificationDeliveryResult(
+                    success=False,
+                    provider_name=self.provider_name,
+                    provider_response=res_json,
+                    error_message=f"TextBee API error ({response.status_code}): {err}"
+                )
+        except Exception as e:
+            logger.error(f"TextBee SMS request exception: {str(e)}")
+            return NotificationDeliveryResult(
+                success=False,
+                provider_name=self.provider_name,
+                error_message=f"TextBee HTTP exception: {str(e)}"
+            )
+
+    async def send_email(self, to_email: str, subject: str, body_text: str, body_html: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
+        return await MockNotificationProvider().send_email(to_email, subject, body_text, body_html, metadata)
+
+    async def send_push(self, device_token: str, title: str, body: str, data: Optional[Dict[str, Any]] = None, metadata: Optional[Dict[str, Any]] = None) -> NotificationDeliveryResult:
+        return await MockNotificationProvider().send_push(device_token, title, body, data, metadata)
+
+
 class NotificationProviderFactory:
     """Factory class to provide notification providers seamlessly"""
 
@@ -448,7 +586,7 @@ class NotificationProviderFactory:
     ) -> BaseNotificationProvider:
         """
         Get provider instance for requested notification channel.
-        Explicitly respects SMS_PROVIDER setting ('twilio', 'fast2sms', 'mock').
+        Explicitly respects SMS_PROVIDER setting ('twilio', 'fast2sms', 'textbelt', 'textbee', 'mock').
         """
         channel_lower = (channel or "sms").lower()
 
@@ -459,6 +597,10 @@ class NotificationProviderFactory:
                 return TwilioSMSProvider()
             elif provider_setting in ["fast2sms", "fastsms"]:
                 return Fast2SMSProvider()
+            elif provider_setting in ["textbelt", "free_sms"]:
+                return TextbeltSMSProvider()
+            elif provider_setting in ["textbee", "text_bee"]:
+                return TextBeeSMSProvider()
             elif provider_setting == "mock":
                 return MockNotificationProvider()
 

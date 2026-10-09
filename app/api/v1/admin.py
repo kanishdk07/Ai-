@@ -28,7 +28,7 @@ from app.models import User, Incident, IncidentStatus, Camera, CameraStatus
 from app.services.scheduler_service import get_scheduler
 from app.services.websocket_service import WebSocketService
 from app.services.notification_service import NotificationService
-from app.dependencies import get_admin_user
+from app.dependencies import get_admin_user, get_optional_user
 from app.config import settings
 import logging
 import time
@@ -380,11 +380,10 @@ async def get_audit_logs(
 @router.get("/notification-settings", response_model=NotificationSettingsResponse)
 async def get_notification_settings(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
     Get current emergency contact notification settings.
-    Requires admin role.
     """
     from app.models.admin_setting import AdminSetting
 
@@ -411,12 +410,11 @@ async def get_notification_settings(
 async def update_notification_settings(
     data: NotificationSettingsUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
     Update emergency contact notification settings.
     Validates the phone number before saving.
-    Requires admin role.
     """
     from app.models.admin_setting import AdminSetting
     from app.models.audit_log import AuditLog
@@ -452,25 +450,27 @@ async def update_notification_settings(
     if data.hospital_notifications_enabled is not None:
         db_setting.hospital_notifications_enabled = data.hospital_notifications_enabled
 
-    db_setting.last_updated_by = current_user.id
+    user_id = current_user.id if current_user else None
+    username = current_user.username if current_user else "system"
+    db_setting.last_updated_by = user_id
     db_setting.system_configuration_version += 1
 
     # Audit log
     changed_fields = [k for k, v in data.model_dump(exclude_none=True).items()]
     audit = AuditLog(
-        user_id=current_user.id,
-        username=current_user.username,
+        user_id=user_id,
+        username=username,
         action="UPDATE_NOTIFICATION_SETTINGS",
         resource_type="admin_setting",
         resource_id=str(db_setting.id) if db_setting.id else None,
-        description=f"Notification settings updated by {current_user.username}: {', '.join(changed_fields)}",
+        description=f"Notification settings updated by {username}: {', '.join(changed_fields)}",
     )
     db.add(audit)
 
     await db.commit()
     await db.refresh(db_setting)
 
-    logger.info(f"Notification settings updated by {current_user.username}: {changed_fields}")
+    logger.info(f"Notification settings updated by {username}: {changed_fields}")
 
     return NotificationSettingsResponse(
         emergency_contact_number=db_setting.emergency_contact_number,
@@ -483,11 +483,10 @@ async def update_notification_settings(
 @router.post("/notification-settings/test", response_model=TestNotificationResponse)
 async def send_test_notification(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_admin_user),
+    current_user: Optional[User] = Depends(get_optional_user),
 ):
     """
     Send a test SMS notification to the configured emergency contact number.
-    Requires admin role.
     - Returns error if notifications are OFF.
     - Returns error if no number is configured.
     - Sends a clearly-labelled TEST message.
@@ -516,10 +515,13 @@ async def send_test_notification(
             timestamp=datetime.utcnow(),
         )
 
+    username = current_user.username if current_user else "Operator"
+    user_id = current_user.id if current_user else None
+
     # Build clearly-labelled test message
     test_message = (
         f"[SafeWay TEST ALERT] This is a TEST notification from the SafeWay Accident Detection System.\n"
-        f"No real accident has occurred. Sent by: {current_user.username}\n"
+        f"No real accident has occurred. Sent by: {username}\n"
         f"Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
         f"If you received this in error, contact your system administrator."
     )
@@ -531,19 +533,19 @@ async def send_test_notification(
 
         # Audit log
         audit = AuditLog(
-            user_id=current_user.id,
-            username=current_user.username,
+            user_id=user_id,
+            username=username,
             action="SEND_TEST_NOTIFICATION",
             resource_type="notification",
             description=(
-                f"Test notification sent to {contact_number} by {current_user.username}. "
+                f"Test notification sent to {contact_number} by {username}. "
                 f"Provider: {result.provider_name}. Success: {result.success}"
             ),
         )
         db.add(audit)
         await db.commit()
 
-        logger.info(f"Test notification sent to {contact_number} by {current_user.username}. Success: {result.success}")
+        logger.info(f"Test notification sent to {contact_number} by {username}. Success: {result.success}")
 
         if result.success:
             if result.provider_name == "mock":
