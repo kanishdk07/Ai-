@@ -26,33 +26,19 @@ export const BoundingBoxCanvas: React.FC<BoundingBoxCanvasProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = imageSrc || 'https://images.unsplash.com/photo-1545178803-4056771d60a3?auto=format&fit=crop&w=1200&q=80';
-
-    img.onload = () => {
-      canvas.width = img.naturalWidth || 800;
-      canvas.height = img.naturalHeight || 450;
-
-      // Draw original image
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-      const w = canvas.width;
-      const h = canvas.height;
-
+    const drawOverlay = (width: number, height: number) => {
       // Draw vehicle bounding boxes
       vehicles.forEach((v, index) => {
         const bbox = v.bbox || [0.2 + index * 0.25, 0.3, 0.25, 0.35];
         const [xNorm, yNorm, wNorm, hNorm] = bbox;
 
-        const vx = xNorm * w;
-        const vy = yNorm * h;
-        const vw = wNorm * w;
-        const vh = hNorm * h;
+        const vx = xNorm * width;
+        const vy = yNorm * height;
+        const vw = wNorm * width;
+        const vh = hNorm * height;
 
         const isCollisionTarget = hasAccident && index === 0;
 
-        // Bounding Box stroke
         ctx.lineWidth = isCollisionTarget ? 4 : 2;
         ctx.strokeStyle = isCollisionTarget
           ? severity === 'high'
@@ -64,7 +50,6 @@ export const BoundingBoxCanvas: React.FC<BoundingBoxCanvasProps> = ({
 
         ctx.strokeRect(vx, vy, vw, vh);
 
-        // Tag label background
         const label = `${v.type || 'Vehicle'} • ${Math.round((v.confidence || confidenceScore) * 100)}%`;
         ctx.font = 'bold 14px Inter, sans-serif';
         const textWidth = ctx.measureText(label).width;
@@ -76,12 +61,9 @@ export const BoundingBoxCanvas: React.FC<BoundingBoxCanvasProps> = ({
           : 'rgba(16, 185, 129, 0.9)';
 
         ctx.fillRect(vx, vy - 24, textWidth + 12, 24);
-
-        // Label text
         ctx.fillStyle = '#FFFFFF';
         ctx.fillText(label, vx + 6, vy - 7);
 
-        // Speed indicator tag if present
         if (v.speed_kmh !== undefined) {
           const speedLabel = `${v.speed_kmh} km/h`;
           ctx.font = '12px Inter, sans-serif';
@@ -93,9 +75,7 @@ export const BoundingBoxCanvas: React.FC<BoundingBoxCanvasProps> = ({
         }
       });
 
-      // Draw overall crash indicator if accident detected
       if (hasAccident) {
-        ctx.fillStyle = severity === 'high' ? '#EF4444' : '#F59E0B';
         ctx.font = 'bold 18px Outfit, sans-serif';
         const crashText = `CRASH DETECTED (${Math.round(confidenceScore * 100)}% CONFIDENCE)`;
         const txtWidth = ctx.measureText(crashText).width;
@@ -109,6 +89,59 @@ export const BoundingBoxCanvas: React.FC<BoundingBoxCanvasProps> = ({
         ctx.fillStyle = severity === 'high' ? '#EF4444' : '#F59E0B';
         ctx.fillText(crashText, 28, 41);
       }
+    };
+
+    const drawFallbackBackdrop = (w: number, h: number) => {
+      canvas.width = w;
+      canvas.height = h;
+
+      // Deep dark gradient backdrop
+      const grad = ctx.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, '#0F172A');
+      grad.addColorStop(1, '#1E293B');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Perspective highway lines
+      ctx.strokeStyle = '#334155';
+      ctx.lineWidth = 2;
+
+      ctx.beginPath();
+      ctx.moveTo(w * 0.4, h * 0.4);
+      ctx.lineTo(w * 0.1, h);
+      ctx.moveTo(w * 0.6, h * 0.4);
+      ctx.lineTo(w * 0.9, h);
+      ctx.stroke();
+
+      // Dashed lane lines
+      ctx.setLineDash([12, 12]);
+      ctx.strokeStyle = '#64748B';
+      ctx.beginPath();
+      ctx.moveTo(w * 0.5, h * 0.4);
+      ctx.lineTo(w * 0.5, h);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      drawOverlay(w, h);
+    };
+
+    // Set initial canvas size immediately
+    canvas.width = 800;
+    canvas.height = 450;
+    drawFallbackBackdrop(800, 450);
+
+    const img = new Image();
+    img.src = imageSrc || 'https://images.unsplash.com/photo-1545178803-4056771d60a3?auto=format&fit=crop&w=1200&q=80';
+
+    img.onload = () => {
+      canvas.width = img.naturalWidth || 800;
+      canvas.height = img.naturalHeight || 450;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      drawOverlay(canvas.width, canvas.height);
+    };
+
+    img.onerror = () => {
+      drawFallbackBackdrop(800, 450);
     };
   }, [imageSrc, vehicles, hasAccident, severity, confidenceScore]);
 

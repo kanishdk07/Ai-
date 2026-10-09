@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, CameraOff, Play, Square, Upload, FileVideo, AlertTriangle, Radio, CheckCircle, RefreshCw } from 'lucide-react';
+import { Camera, CameraOff, Play, Square, Upload, FileVideo, AlertTriangle, Radio, CheckCircle, RefreshCw, Send } from 'lucide-react';
 import { useCameras } from '../../context/CameraContext';
 import { useIncidents } from '../../context/IncidentContext';
 import { incidentApi } from '../../api/incidentApi';
+import { notificationApi } from '../../api/notificationApi';
 
 interface SystemCameraStreamProps {
   onCaptureFrame?: (dataUrl: string) => void;
@@ -32,6 +33,8 @@ export const SystemCameraStream: React.FC<SystemCameraStreamProps> = ({ onCaptur
   const [videoObjectUrl, setVideoObjectUrl] = useState<string | null>(null);
   const [isAnalyzingVideo, setIsAnalyzingVideo] = useState<boolean>(false);
   const [uploadAnalysisResult, setUploadAnalysisResult] = useState<any | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [techDetails, setTechDetails] = useState<string | null>(null);
   // SMS Notification State
   const [recipientPhone, setRecipientPhone] = useState<string>('+919876543210');
   const [customLocation, setCustomLocation] = useState<string>('');
